@@ -5,77 +5,81 @@ ctypedef cnp.int_t          DEG_t
 ctypedef object             MPF_t
 ctypedef cnp.int_t          INDEX_t
 ctypedef cnp.int_t          DPS_t
+ctypedef int                ERR_t
+ctypedef int                BOOL_t
 
-cdef enum BOOL_TYPE:
-    TRUE, FALSE
+cdef BOOL_t FALSE = 0
+cdef BOOL_t TRUE = 1
 
-cdef class Int_Polynomial:
-
-    cdef:
-        COEF_t[:] _coefs
-        DPS_t _dps
-        DEG_t _deg
-        DEG_t _max_deg
-        BOOL_TYPE _is_natural
-        MPF_t last_eval
-        MPF_t last_eval_deriv
-        DEG_t _start_index
-
-    cdef void _init(self, coefs, DPS_t dps, BOOL_TYPE is_natural) except *
-
-    cpdef DEG_t get_deg(self)
-
-    cdef COEF_t[:] get_coefs_mv(self)
-
-    cpdef DPS_t get_dps(self)
-
-    cpdef DEG_t get_max_deg(self)
-
-    cpdef Int_Polynomial trim(self)
-
-    cpdef cnp.ndarray[COEF_t, ndim=1] ndarray_coefs(self, natural_order = ?, include_hidden_coefs = ?)
-
-    cpdef COEF_t max_abs_coef(self)
-
-    cdef void _c_eval_both(self, MPF_t x, BOOL_TYPE calc_deriv)
-
-    cdef void c_eval_both(self, MPF_t x)
-
-    cdef void c_eval_only(self, MPF_t x)
-
-    cdef BOOL_TYPE eq(self, Int_Polynomial other)
-
-    cdef void set_coef(self, DEG_t i, COEF_t coef) except *
-
-    cdef COEF_t get_coef(self, DEG_t i) except? -1
+cdef DEG_t calc_deg(const COEF_t[:,:] array, INDEX_t i)
 
 cdef class Int_Polynomial_Array:
 
     cdef:
-        INDEX_t _max_size
-        COEF_t[:,:] _array
+        BOOL_t _is_set
+        BOOL_t _degs_set
+        BOOL_t _readonly
         INDEX_t _curr_index
-        DPS_t _dps
+        INDEX_t _len
         DEG_t _max_deg
+        DEG_t[:] _degs
+        const COEF_t[:,:] _ro_array
+        COEF_t[:,:] _rw_array
 
-    cpdef void init_empty(self, INDEX_t init_size) except *
+    cdef inline ERR_t _check_is_set_raise(self) except -1
 
-    cdef void init_from_mv(self, COEF_t[:,:] mv, INDEX_t size)
+    cdef inline ERR_t _check_is_not_set_raise(self) except -1
 
-    cdef INDEX_t get_len(self)
+    cdef inline ERR_t _check_readwrite_raise(self) except -1
 
-    cdef BOOL_TYPE eq(self, Int_Polynomial_Array other)
+    cdef inline ERR_t _check_i_raise(self, INDEX_t i) except -1
 
-    cdef void set_curr_index(self, INDEX_t curr_index)
+    cdef inline ERR_t _check_j_raise(self, DEG_t j) except -1
 
-    cdef INDEX_t get_curr_index(self)
+    cdef inline ERR_t _check_degs_set_raise(self) except -1
 
-    cpdef DEG_t get_max_deg(self)
 
-    cpdef void append(self, Int_Polynomial poly) except *
+    cdef ERR_t c_set_rw_array(self, COEF_t[:,:] mv) except -1
 
-    cpdef void pad(self, INDEX_t pad_size) except *
+    cdef ERR_t c_set_ro_array(self, const COEF_t[:,:] mv) except -1
 
-    cpdef Int_Polynomial get_poly(self, INDEX_t i)
+    cdef ERR_t c_set_poly(self, INDEX_t i, Int_Polynomial poly) except -1
 
-    cpdef cnp.ndarray[COEF_t, ndim = 2] get_ndarray(self)
+    cdef ERR_t c_get_poly(self, INDEX_t i, Int_Polynomial poly) except -1
+
+    cdef ERR_t c_set_degs(self) except -1
+
+    cpdef ERR_t zeros(self, INDEX_t length) except -1
+
+
+    cdef ERR_t c_copy(self, Int_Polynomial_Array copy) except -1
+
+    cpdef COEF_t max_abs_coef(self) except -1
+
+    cdef ERR_t c_eq(self, Int_Polynomial_Array other) except -1
+
+    cpdef ERR_t append(self, Int_Polynomial poly) except -1
+
+cdef class Int_Polynomial(Int_Polynomial_Array):
+
+    cdef:
+        DEG_t _deg
+        const COEF_t[:] _ro_coefs
+        COEF_t[:] _rw_coefs
+        MPF_t last_eval
+        MPF_t last_deriv
+
+    cdef ERR_t c_set_array(self, Int_Polynomial_Array array, INDEX_t index) except -1
+
+    cdef ERR_t c_set_coef(self, DEG_t j, COEF_t c) except -1
+
+    cdef COEF_t c_get_coef(self, DEG_t j) except? -1
+
+    cdef ERR_t c_set_deg(self) except -1
+
+    cpdef ERR_t zero_poly(self) except -1
+
+
+    cdef ERR_t c_copy(self, Int_Polynomial_Array copy) except -1
+
+    cdef ERR_t c_eval(self, MPF_t x, BOOL_t calc_deriv) except -1

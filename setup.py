@@ -58,6 +58,7 @@ setup(
     packages = [
         "intpolynomials"
     ],
+    include_package_data = True,
 
     test_suite = "tests",
 

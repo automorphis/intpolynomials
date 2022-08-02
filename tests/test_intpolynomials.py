@@ -1,18 +1,3 @@
-"""
-    Beta Expansions of Salem Numbers, calculating periods thereof
-    Copyright (C) 2021 Michael P. Lane
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-"""
-
 import copy
 from itertools import product
 from pathlib import Path
@@ -21,7 +6,7 @@ from unittest import TestCase
 import numpy as np
 from mpmath import mp, mpf, almosteq, workdps
 
-from intpolynomials.intpolynomials import Int_Polynomial, Int_Polynomial_Array
+from intpolynomials import Int_Polynomial, Int_Polynomial_Array
 
 def eval_code_in_file(filename, dps = 32):
     filename = Path(filename)
@@ -347,7 +332,7 @@ class Test_Int_Polynomial(TestCase):
     def test_get_deg(self):
         for args, deg in zip(self.good_polys["poly1_args"], self.good_polys["deg"]):
             self.assertEqual(
-                Int_Polynomial(*args).get_deg(),
+                Int_Polynomial(*args).deg(),
                 deg,
                 "args: %s" % (args,)
             )
@@ -479,8 +464,8 @@ class Test_Int_Polynomial(TestCase):
                         if k != i:
                             self.assertEqual(poly[k], 0)
                         else:
-                            self.assertEqual(poly[k], k-10, str((args, repr(poly), poly.get_deg(), k)))
-                    self.assertEqual(poly.get_deg(), max(i, deg))
+                            self.assertEqual(poly[k], k - 10, str((args, repr(poly), poly.deg(), k)))
+                    self.assertEqual(poly.deg(), max(i, deg))
                 for i,j in product(range(deg + 1),repeat=2):
                     if i != j:
                         poly = Int_Polynomial(*args)
@@ -500,7 +485,7 @@ class Test_Int_Polynomial(TestCase):
                                 self.assertEqual(poly[k], k-12)
                             else:
                                 self.assertEqual(poly[k], k-10)
-                        self.assertEqual(poly.get_deg(), max(i, j, deg))
+                        self.assertEqual(poly.deg(), max(i, j, deg))
 
     def test___getitem__(self):
         for args, deg, coefs in zip(self.good_polys["poly1_args"], self.good_polys["deg"], self.good_polys["list_natural"]):
@@ -520,7 +505,8 @@ class Test_Int_Polynomial(TestCase):
 class Test_Int_Polynomial_Array(TestCase):
 
     def setUp(self):
-        self.several_smaller_orbits = eval_code_in_file("several_smaller_orbits.txt")
+        several_smaller_orbits_file = Path(__file__).parent / "several_smaller_orbits.txt"
+        self.several_smaller_orbits = eval_code_in_file(several_smaller_orbits_file)
         self.arrays = []
         for _, _, Bs, _, _, _ in self.several_smaller_orbits:
             array = Int_Polynomial_Array(5, 256)

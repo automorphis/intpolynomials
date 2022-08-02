@@ -1,445 +1,655 @@
+cimport cython
+
 from intpolynomials cimport *
 
 import warnings
 
 import numpy as np
-import cython
-from mpmath import workdps, mpf
+from mpmath import mpf
 
 COEF_DTYPE = np.int64
+DEG_DTYPE = np.int32
 
-cpdef instantiate_int_poly(DEG_t deg, DPS_t dps, is_natural = True):
-    return Int_Polynomial(
-        np.zeros(deg + 1, dtype=COEF_DTYPE),
-        dps,
-        is_natural
-    )
+def is_int(num):
+    return isinstance(num, (int, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64))
 
-cdef inline object cpb(BOOL_TYPE b):
-    return True if b == TRUE else False
+NP_INT_DTYPES = (np.int8, np.int16, np.int32, np.int64)
+NP_UINT_DTYPES = (np.uint8, np.uint16, np.uint32, np.uint64)
 
-cdef inline BOOL_TYPE pcb(object b):
-    return TRUE if b else FALSE
+cdef DEG_t calc_deg(const COEF_t[:,:] array, INDEX_t i):
 
-cdef class Int_Polynomial:
+    cdef DEG_t j
+    cdef DEG_t max_deg = array.shape[1]
+
+    for j in range(max_deg, -1, -1):
+
+        if array[i, j] != 0:
+            return j
+
+    return -1
+
+cdef class Int_Polynomial_Array:
+    """
+
+    Implementation notes: I couldn't figure out how to implement pure-C(++) iterators so there's a lot of repeated code
+    in this class.
+
+    """
+
+    def __init__(self, max_deg):
+
+        self._max_deg = max_deg
+        self._is_set = FALSE
+        self._curr_index = 0
+        self._readonly = FALSE
+        self._degs_set = FALSE
+
+    ###############################
+    #            ERRORS           #
+
+    cdef inline ERR_t _check_is_set_raise(self) except -1:
+
+        if self._is_set == FALSE:
+            raise ValueError(f"`{self.__class__.__name__}` instance is not set.")
+
+        return 0
+
+    cdef inline ERR_t _check_is_not_set_raise(self) except -1:
+
+        if self._is_set == TRUE:
+            raise ValueError(f"`{self.__class__.__name__}` instance is already set.")
+
+        return 0
+
+    cdef inline ERR_t _check_readwrite_raise(self) except -1:
+
+        if self._readonly == TRUE:
+            raise ValueError(f"`{self.__class__.__name__}` instance is readonly.")
+
+        return 0
+
+    cdef inline ERR_t _check_i_raise(self, INDEX_t i) except -1:
+
+        if i < 0:
+            raise ValueError(f"i ({i}) must be non-negative.")
+
+        if i >= self._curr_index:
+            raise ValueError(f"i ({i}) must be less than `self._curr_index` ({self._curr_index}).")
+
+        return 0
+
+    cdef inline ERR_t _check_j_raise(self, DEG_t j) except -1:
+
+        if j < 0:
+            raise ValueError(f"j ({j}) must be non-negative.")
+
+        if j > self._max_deg:
+            raise ValueError(f"j ({j}) must be at most `self._max_deg` ({self._max_deg}).")
+
+        return 0
+
+    cdef inline ERR_t _check_degs_set_raise(self) except -1:
+
+        if self._degs_set == FALSE:
+            raise ValueError(f"Must call `c_set_degs` prior to calling this method.")
+
+        return 0
+
+    ###############################
+    #      C SETTERS/GETTERS      #
+
+    cdef ERR_t c_set_rw_array(self, COEF_t[:,:] array) except -1:
+        """Set the non-`const` array of coefficients.
+        
+        This method does not calculate polynomial degrees. You must call `c_set_degs` for that.
+        
+        :param array: The first axis indexes polynomials, the second coefficients.
+        """
+
+        self._check_is_set_raise()
+
+        if array.shape[1] > self._max_deg + 1:
+            raise ValueError(f"Maximum size of `array.shape[1]` is `self._max_deg + 1`.")
+
+        self._readonly = FALSE
+        self._rw_array = array
+        self._ro_array = self._rw_array
+        self._is_set = TRUE
+        self._max_len = array.shape[0]
+        self._curr_index = self._max_len
+        return 0
+
+    cdef ERR_t c_set_ro_array(self, const COEF_t[:,:] array) except -1:
+        """Set the non-`const` array of coefficients."""
+
+        self._check_is_set_raise()
+
+        if array.shape[1] > self._max_deg + 1:
+            raise ValueError(f"Maximum size of `array.shape[1]` is `self._max_deg + 1`.")
+
+        self._readonly = TRUE
+        self._ro_array = array
+        self._is_set = TRUE
+        self._max_len = array.shape[0]
+        self._curr_index = self._max_len
+        return 0
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef void _init(self, coefs, DPS_t dps, BOOL_TYPE is_natural) except *:
-        cdef cnp.ndarray[COEF_t, ndim=1] coefs_array
-        cdef DEG_t i
+    cdef ERR_t c_set_poly(self, INDEX_t i, Int_Polynomial poly) except -1:
 
-        if isinstance(coefs, list) or isinstance(coefs, tuple):
-            coefs_array = np.array(coefs, dtype=COEF_DTYPE)
+        cdef DEG_t j
 
-        elif not isinstance(coefs, np.ndarray):
-            raise TypeError("passed coefs must be either list, tuple, or np.ndarray. passed type: %s" % type(coefs))
+        self._check_is_set_raise()
+        poly._check_is_set_raise()
+        self._check_readwrite_raise()
+        self._check_i_raise(i)
 
-        elif coefs.dtype != COEF_DTYPE:
-            warnings.warn("Int_Polynomial constructor: Automatically casting to np.longlong is dangerous. Please cast to " +
-                            "np.longlong prior to calling this constructor.")
-            coefs_array = coefs.astype(COEF_DTYPE)
+        if self._max_deg < poly._deg:
+            raise ValueError(f"`poly` degree is {poly._deg}, but max degree for this `Int_Polynomial_Array` is {self._max_deg}.")
+
+        for j in range(poly._deg + 1):
+            self._rw_array[i,j] = poly._ro_coefs[j]
+
+        for j in range(poly._deg + 1, self._max_deg + 1):
+            self._rw_array[i,j] = poly._ro_coefs[j]
+
+        if self._degs_set == TRUE:
+            self._degs[i] = poly._deg
+
+        return 0
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef ERR_t c_get_poly(self, INDEX_t i, Int_Polynomial poly) except -1:
+        """Equivalent to `poly.c_set_array(self, i)`."""
+
+        cdef DEG_t deg
+
+        self._check_is_set_raise()
+        poly._check_is_not_set_raise()
+        self._check_i_raise(i)
+
+        if self._degs_set == TRUE:
+            deg = self._degs[i]
 
         else:
-            coefs_array = coefs
+            deg = calc_deg(self._ro_array, i)
 
-        if len(coefs_array) == 0:
-            raise ValueError("passed coefficient array must be non-empty; pass [0] for the zero polynomial")
-        else:
-            self._coefs = coefs_array
+        if deg > poly._max_deg:
+            raise ValueError(f"`poly._max_deg` is {poly._max_deg}, but requested polynomial has degree {self._max_deg}.")
 
-        self._dps = dps
-        self._deg = <DEG_t> len(self._coefs) - 1
-        self._max_deg = self._deg
-        self._is_natural = is_natural
-        with workdps(self._dps):
-            self.last_eval = mpf(0)
-            self.last_eval_deriv = mpf(0)
-        self._start_index = 0
+        poly.c_set_array(self, i)
 
-        self.trim()
+        return 0
 
-    def __init__(self, coefs, dps, is_natural = True):
-        self._init(coefs, dps, pcb(is_natural))
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef ERR_t c_set_degs(self) except -1:
 
-    def __copy__(self):
-        return Int_Polynomial(self.ndarray_coefs(cpb(self._is_natural),True), self.get_dps(), cpb(self._is_natural))
+        cdef INDEX_t i
+        cdef DEG_t j
 
-    def __deepcopy__(self,memo):
-        return self.__copy__()
+        self._check_is_set_raise()
 
-    cpdef Int_Polynomial trim(self):
+        self._degs = -np.ones(self._max_len, dtype = DEG_DTYPE)
 
-        cdef DEG_t less = 0
-        cdef DEG_t deg = self.get_deg()
-        cdef DEG_t i
+        for i in range(self._curr_index):
+            self._degs[i] = calc_deg(self._ro_array, i)
 
-        if deg < 0:
-            return self
+        return 0
 
-        for i in range(deg + 1):
-            if self.get_coef(deg - i) == 0:
-                less += 1
+    cpdef ERR_t zeros(self, INDEX_t length) except -1:
+
+        self._check_is_not_set_raise()
+
+        self._readonly = FALSE
+        self._rw_array = np.zeros((length, self._max_deg), dtype = COEF_DTYPE)
+        self._ro_array = self._rw_array
+        self._is_set = TRUE
+        self._max_len = length
+        self._curr_index = 0
+        self._degs = -np.ones(length, dtype = DEG_DTYPE)
+
+    ###############################
+    #     PY SETTERS/GETTERS      #
+
+    def set(self, coefs):
+
+        self._check_is_not_set_raise()
+
+        if isinstance(coefs, (list, tuple)):
+
+            self.set(np.array(coefs, dtype=COEF_DTYPE))
+
+        elif isinstance(coefs, np.ndarray):
+
+            if coefs.dtype in NP_UINT_DTYPES:
+                warnings.warn("Int_Polynomial.set : Casting from unsigned int to np.int64 is dangerous.")
+
+            elif coefs.dtype not in NP_INT_DTYPES:
+                raise TypeError(f"`{coefs.dtype}` is not a Numpy int type.")
+
+            if len(coefs.shape) != 2:
+                raise ValueError("`coefs` must have exactly two dimensions.")
+
+            if coefs.shape[0] == 0 or coefs.shape[1] == 0:
+                raise ValueError("`coefs.shape[0]` and `coefs.shape[1]` must both be non-zero.")
+
+            if coefs.shape[1] > self._max_deg + 1:
+                raise ValueError("`coefs.shape[1]` must be at most `self._max_deg + 1`.")
+
+            if isinstance(coefs, np.memmap) and coefs.mode == "r":
+                self.c_set_ro_array(coefs)
+
             else:
-                break
+                self.c_set_rw_array(coefs)
 
-        self._deg -= less
-        if self._is_natural == FALSE:
-            self._start_index += less
+            self.c_set_degs()
+
+        else:
+            raise TypeError("`coefs` must be a `list`, `tuple`, or `np.ndarray`.")
 
         return self
 
-    cpdef DPS_t get_dps(self):
-        return self._dps
+    def __setitem__(self, i, poly):
+        self.c_set_poly(i, poly)
 
-    def set_dps(self, dps):
-        self._dps = dps
+    def __getitem__(self, i):
 
-    cpdef DEG_t get_max_deg(self):
-        return self._max_deg
+        cdef Int_Polynomial poly = Int_Polynomial(self._max_deg)
 
-    cpdef DEG_t get_deg(self):
-        return self._deg
+        self.c_get_poly(i, poly)
+        return poly
 
-    cdef COEF_t[:] get_coefs_mv(self):
-        return self._coefs
+    ###############################
+    #           C SUGAR           #
 
-    cpdef cnp.ndarray[COEF_t, ndim=1] ndarray_coefs(self, natural_order = True, include_hidden_coefs = False):
+    cdef ERR_t c_copy(self, Int_Polynomial_Array copy) except -1:
 
-        cdef DEG_t i
-        cdef DEG_t deg = self.get_deg()
-        cdef cnp.ndarray[COEF_t, ndim=1] ret
+        cdef COEF_t[:,:] _rw_array_copy
 
-        if include_hidden_coefs:
-            ret = np.empty(max(1, self._max_deg + 1), dtype=COEF_DTYPE)
+        self._check_is_set_raise()
+        copy._check_is_not_set_raise()
 
-        else:
-            ret = np.empty(max(1, deg + 1), dtype=COEF_DTYPE)
+        if copy._max_deg != self._max_deg:
+            raise ValueError("Passed `copy._max_deg` must equal `self._max_deg`.")
 
-        if deg < 0:
-            ret[0] = 0
-
-        elif include_hidden_coefs:
-
-            for i in range(self._max_deg + 1):
-
-                if natural_order:
-                    ret[i] = self.get_coef(i)
-
-                else:
-                    ret[i] = self.get_coef(self._max_deg - i)
+        if self._readonly == TRUE:
+            copy.c_set_ro_array(self._ro_array)
 
         else:
 
-            for i in range(deg + 1):
+            _rw_array_copy = np.empty((self._max_len, self._max_deg + 1), dtype = COEF_DTYPE)
+            _rw_array_copy[:,:] = self._rw_array
+            copy.c_set_rw_array(_rw_array_copy)
 
-                if natural_order:
-                    ret[i] = self.get_coef(i)
+        if self._degs_set == TRUE:
 
-                else:
-                    ret[i] = self.get_coef(deg - i)
+            copy._degs = np.empty(self._max_len, dtype = COEF_DTYPE)
+            copy._degs[:] = self._degs
+            copy._degs_set = TRUE
 
-        return ret
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cpdef COEF_t max_abs_coef(self) except -1:
 
-    cpdef COEF_t max_abs_coef(self):
         cdef INDEX_t i
-        cdef DEG_t deg = self.get_deg()
-        cdef COEF_t curr_max = -1
+        cdef DEG_t j
+        cdef COEF_t curr_max = 0
         cdef COEF_t c
-        for i in range(deg + 1):
-            c = self.get_coef(i)
-            if c < 0 and -c > curr_max:
-                curr_max = -c
-            elif c >= 0 and c > curr_max:
-                curr_max = c
+
+        self._check_is_set_raise()
+
+        if self._deg == -1:
+            return 0
+
+        for i in range(self._curr_index):
+
+            for j in range(self._max_deg + 1):
+
+                c = self._ro_coefs[i]
+
+                if c < 0 and -c > curr_max:
+                    curr_max = -c
+
+                elif c >= 0 and c > curr_max:
+                    curr_max = c
+
         return curr_max
 
-    def eval(self, x, calc_deriv = False):
-        self._c_eval_both(mpf(x), TRUE if calc_deriv else FALSE)
-        if calc_deriv:
-            return self.last_eval, self.last_eval_deriv
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef ERR_t c_eq(self, Int_Polynomial_Array other) except -1:
+
+        cdef INDEX_t i
+        cdef DEG_t j
+
+        self._check_is_set_raise()
+        other._check_is_set_raise()
+
+        if self._curr_index != other._curr_index:
+            return <ERR_t> FALSE
+
+        for i in range(self._curr_index):
+
+            for j in range(self._max_deg + 1):
+
+                if self._ro_array[i,j] != other._ro_array[i,j]:
+                    return <ERR_t> FALSE
+
         else:
-            return self.last_eval
+            return <ERR_t> TRUE
 
-    cdef void _c_eval_both(self, MPF_t x, BOOL_TYPE calc_deriv):
-        cdef:
-            MPF_t p
-            MPF_t q
-            MPF_t coef
-            DEG_t i
-            DEG_t deg = self.get_deg()
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cpdef ERR_t append(self, Int_Polynomial poly) except -1:
 
-        if deg < 0:
-            p = mpf(0.0)
-            q = mpf(0.0)
+        cdef DEG_t j
+
+        self._check_is_set_raise()
+        poly._check_is_set_raise()
+        self._check_readwrite_raise()
+
+        if self._curr_index >= self._max_len:
+            raise ValueError("This `Int_Polynomial_Array` is full.")
+
+        for j in range(poly._deg + 1):
+            self._rw_array[self._curr_index, j] = poly._ro_coefs[j]
+
+        self._curr_index += 1
+        return 0
+
+    ###############################
+    #          PY SUGAR           #
+
+    def get_ndarray(self):
+
+        self._check_is_set_raise()
+
+        if self._readonly == TRUE:
+            return np.asarray(self._ro_array)
+
         else:
-            with workdps(self.get_dps()):
-                p = mpf(self.get_coef(deg))
-                q = mpf(0)
-                for i in range(1, deg + 1):
-                    if calc_deriv == TRUE:
-                        q = p + x*q
-                    p = x*p + self.get_coef(deg - i)
+            return np.asarray(self._rw_array)
 
-        self.last_eval = p
-        self.last_eval_deriv = q
+    def __copy__(self):
 
-    cdef void c_eval_both(self, MPF_t x):
-        self._c_eval_both(x, TRUE)
+        cdef Int_Polynomial_Array copy = Int_Polynomial_Array(self._max_deg)
+        self.c_copy(copy)
+        return copy
 
-    cdef void c_eval_only(self, MPF_t x):
-        self._c_eval_both(x, FALSE)
+    def __deepcopy__(self, memo):
+        return self.__copy__()
+
+    def max_deg(self):
+        return self._max_deg
+
+    def degs(self):
+
+        self._check_is_set_raise()
+
+        if self._degs_set == FALSE:
+            self.c_set_degs()
+
+        return np.asarray(self._degs)[:self._curr_index]
 
     def __str__(self):
-        return str(list(self.ndarray_coefs()))
+
+        self._check_is_set_raise()
+
+        return str(self.get_ndarray())
 
     def __repr__(self):
-        return (
-            "Int_Polynomial(" +
-            str(list(self.ndarray_coefs(True, True))) +
-            (", %d)" % self.get_dps())
-        )
-
-    def __hash__(self):
-        cdef int ret = 0
-        cdef DEG_t i
-        for i in range(self.get_deg() + 1):
-            ret += <int> hash(str(self.get_coef(i)))
-        return ret + <int> hash(str(self.get_dps()))
-
-    cdef BOOL_TYPE eq(self, Int_Polynomial other):
-        cdef DEG_t i
-        cdef DEG_t deg = self.get_deg()
-        if deg != other.get_deg():
-            return FALSE
-        for i in range(deg + 1):
-            if self.get_coef(i) != other.get_coef(i):
-                return FALSE
-        return TRUE
-
-    def __getstate__(self):
-        return {
-            "_coefs": self.ndarray_coefs(cpb(self._is_natural), True),
-            "_dps": self.get_dps(),
-            "_is_natural": cpb(self._is_natural)
-        }
-
-    def __setstate__(self, state):
-        self._coefs = state["_coefs"]
-        self._deg = len(state["_coefs"]) - 1
-        self._max_deg = self._deg
-        self._dps = state["_dps"]
-        self._is_natural = pcb(state["_is_natural"])
-        self._start_index = 0
-        self.trim()
+        return str(self)
 
     def __ne__(self, other):
         return not(self == other)
 
     def __eq__(self, other):
-        return cpb(self.eq(other))
 
-    def __setitem__(self, i, coef):
-        self.set_coef(i, coef)
+        if type(self) != type(other):
+            return False
 
-    def __getitem__(self, i):
-        return self.get_coef(i)
-
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    cdef void set_coef(self, DEG_t i, COEF_t coef) except *:
-        cdef DEG_t deg = self.get_deg()
-
-        if not(0 <= i <= self._max_deg):
-            raise IndexError("index must be between 0 and %d. reinitialize array if you want to increase the maximum degree. passed index: %d" % (self._max_deg, i))
-        if self._is_natural == TRUE:
-            self._coefs[i] = coef
-        else:
-            self._coefs[deg - i + self._start_index] = coef
-        if coef != 0 and i > self._deg:
-            self._deg = i
-            if self._is_natural == FALSE:
-                self._start_index = self._max_deg - i
-
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    cdef COEF_t get_coef(self, DEG_t i) except? -1:
-
-        cdef DEG_t deg = self.get_deg()
-
-        if i < 0:
-            raise IndexError("index must be positive or zero.")
-
-        if deg < 0:
-            return 0
-
-        if self._is_natural == TRUE:
-
-            if i <= deg:
-                return self._coefs[i]
-
-            else:
-                return 0
+        if self.c_eq(other) == TRUE:
+            return True
 
         else:
-
-            if i <= deg:
-                return self._coefs[deg - i + self._start_index]
-
-            else:
-                return 0
-
-cdef class Int_Polynomial_Array:
-
-    def __init__(self, max_deg, dps):
-        self._max_size = 0
-        self._curr_index = 0
-        self._max_deg = max_deg
-        self._dps = dps
-        self._array = np.empty((0,0), dtype = COEF_DTYPE)
-
-    cpdef void init_empty(self, INDEX_t init_size) except *:
-        if init_size < 0:
-            raise ValueError("init_size (%d) must be positive or zero" % init_size)
-        self._max_size = init_size
-        self._array = np.empty((self._max_size, self._max_deg + 1), dtype=COEF_DTYPE)
-
-    cdef void init_from_mv(self, COEF_t[:,:] mv, INDEX_t size):
-        self._max_size = size
-        self._curr_index = size
-        self._array = mv
-
-    def __copy__(self):
-        cdef Int_Polynomial_Array array = Int_Polynomial_Array(self.get_max_deg(), self._dps)
-        array.init_from_mv(self._array, self._max_size)
-        return array
-
-    def __deepcopy__(self, memo):
-        cdef Int_Polynomial_Array array = Int_Polynomial_Array(self.get_max_deg(), self._dps)
-        cdef INDEX_t i
-        array.init_empty(self._max_size)
-        for i in range(self.get_curr_index()):
-            array.append(self.get_poly(i))
-        return array
-
-
-    def __getitem__(self, item):
-        cdef Int_Polynomial_Array ret_array
-        cdef Int_Polynomial ret_poly
-        cdef INDEX_t start, stop, step
-        cdef INDEX_t i
-
-        if isinstance(item, slice):
-            start = item.start if item.start else 0
-            stop = item.stop   if item.stop  else self.get_curr_index()
-            step = item.step   if item.step  else 1
-            if step <= 0:
-                raise IndexError("step must be positive. passed step: %d" % step)
-            if start < 0:
-                start += self.get_curr_index()
-            if stop < 0:
-                stop += self.get_curr_index()
-                if stop < 0:
-                    stop = 0
-            if start > stop:
-                raise IndexError("start index (%d) exceeds stop index (%d)" % (start, stop))
-            if stop > self.get_curr_index():
-                stop = self.get_curr_index()
-            init_size = (stop - start) // step
-            if init_size * step != stop - start:
-                init_size += 1
-            ret_array = Int_Polynomial_Array(self.get_max_deg(), self._dps)
-            if start < stop:
-                ret_array.init_from_mv(self._array[start:stop:step, :], init_size)
-            return ret_array
-
-        else:
-            i = item
-            if i >= self.get_len():
-                raise IndexError("passed index (%d) exceeds maximum index (%d)" % (i, self.get_len() - 1))
-            if i < 0:
-                i += self.get_len()
-            if i < 0:
-                raise IndexError("could not resolve passed index")
-            else:
-                return self.get_poly(i)
+            return False
 
     def __len__(self):
-        return self.get_len()
-
-    cdef INDEX_t get_len(self):
-        return self._max_size
-
-    def __eq__(self, other):
-        return cpb(self.eq(other))
-
-    cdef BOOL_TYPE eq(self, Int_Polynomial_Array other):
-        cdef INDEX_t i
-        if self.get_len() != other.get_len():
-            return FALSE
-        if self.get_curr_index() != other.get_curr_index():
-            return FALSE
-        if self.get_max_deg() != other.get_max_deg():
-            return FALSE
-        for i in range(self.get_curr_index()):
-            if self.get_poly(i) != other.get_poly(i):
-                return FALSE
-        return TRUE
-
-    def __hash__(self):
-        raise TypeError("Int_Polynomial_Array is not a hashable type")
-
-    cdef void set_curr_index(self, INDEX_t curr_index):
-        self._curr_index = curr_index
-
-    cdef INDEX_t get_curr_index(self):
         return self._curr_index
 
-    cpdef DEG_t get_max_deg(self):
-        return self._max_deg
+cdef class Int_Polynomial(Int_Polynomial_Array):
+
+
+    ###############################
+    #      C SETTERS/GETTERS      #
+
+    cdef ERR_t c_set_array(self, Int_Polynomial_Array array, INDEX_t index) except -1:
+
+        self._check_is_not_set_raise()
+
+        if self._max_deg != array._max_deg:
+            raise ValueError("`Int_Polynomial` max deg must equal `array` max deg.")
+
+        if array._readonly == TRUE:
+            Int_Polynomial_Array.c_set_ro_array(self, array._ro_array)
+
+        else:
+            Int_Polynomial_Array.c_set_rw_array(self, array._rw_array)
+
+        self._curr_index = index
+        self.c_set_deg()
+
+        return 0
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cpdef void append(self, Int_Polynomial poly) except *:
-        cdef DEG_t poly_max_deg = poly.get_max_deg()
-        cdef DEG_t i
-        if self._curr_index >= self.get_len():
-            raise IndexError("This array has reached its max size, %d" % self.get_len())
-        if poly_max_deg > self.get_max_deg():
-            raise ValueError("passed polynomial max degree (%d) exceeds maximum degree of this array (%d)" % (poly_max_deg, self.get_max_deg()))
-        for i in range(self.get_max_deg()+1):
-            self._array[self._curr_index, i] = poly.get_coef(i)
-        self._curr_index += 1
+    cdef ERR_t c_set_coef(self, DEG_t j, COEF_t c) except -1:
+
+        self._check_is_set_raise()
+        self._check_readwrite_raise()
+        self._check_j_raise(j)
+
+        self._rw_coefs[j] = c
+
+        if c != 0 and j > self._deg:
+
+            self._deg = j
+
+            if self._degs_set == TRUE:
+                self._degs[self._curr_index] = self._deg
+
+        elif c == 0 and j == self._deg:
+            self.c_set_deg()
+
+        return 0
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cpdef void pad(self, INDEX_t pad_size) except *:
-        cdef INDEX_t i
+    cdef COEF_t c_get_coef(self, DEG_t j) except? -1:
+
+        self._check_is_set_raise()
+        self._check_j_raise(j)
+
+        return self._ro_coefs[j]
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef ERR_t c_set_deg(self) except -1:
+
         cdef DEG_t j
+
+        self._check_is_set_raise()
+
+        if self._degs_set == TRUE:
+            self._deg = self._degs[self._curr_index]
+
+        else:
+            self._deg = calc_deg(self._ro_array, self._curr_index)
+
+        return 0
+
+    cpdef ERR_t zero_poly(self) except -1:
+
         cdef COEF_t[:,:] array
 
-        if pad_size < 0:
-            raise ValueError("pad_size must be positive, passed pad_size: %d" % pad_size)
-        if pad_size == 0:
-            return
+        self._check_is_not_set_raise()
 
-        array = np.empty((self.get_len() + pad_size, self.get_max_deg() + 1), dtype=COEF_DTYPE)
+        array = np.zeros((1, self._max_deg + 1), dtype = COEF_DTYPE)
+        self.c_set_array(array, 0)
+        self._deg = -1
+        return 0
 
-        for i in range(self._curr_index):
-            for j in range(self.get_max_deg() + 1):
-                array[i,j] = self._array[i,j]
+    ###############################
+    #     PY SETTERS/GETTERS      #
 
-        self._array = array
-        self._max_size += pad_size
+    def set(self, coefs):
 
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    cpdef Int_Polynomial get_poly(self, INDEX_t i):
-        if i >= self._curr_index:
-            raise IndexError("Max index is %d, passed index is %d" % (self._curr_index-1, i))
-        if i < 0:
-            raise IndexError("passed index (%d) must be positive" % i)
-        return Int_Polynomial(np.asarray(self._array[i, :]), self._dps)
+        self._check_is_not_set_raise()
 
-    cpdef cnp.ndarray[COEF_t, ndim = 2] get_ndarray(self):
-        return np.asarray(self._array[:self._curr_index, :])
+        if isinstance(coefs, (list, tuple)):
+            self.set(np.array(coefs, dtype=COEF_DTYPE))
+
+        elif isinstance(coefs, np.ndarray):
+
+            if coefs.dtype in NP_UINT_DTYPES:
+                warnings.warn("Int_Polynomial.set : Casting from unsigned int to np.int64 is dangerous.")
+
+            elif coefs.dtype not in NP_INT_DTYPES:
+                raise TypeError(f"`{coefs.dtype}` is not a Numpy int type.")
+
+            if len(coefs.shape) != 1:
+                raise ValueError("`coefs` must have exactly one dimension.")
+
+            if coefs.shape[0] == 0:
+                raise ValueError("`coefs.shape[0]` must be non-zero.")
+
+            if coefs.shape[0] > self._max_deg + 1:
+                raise ValueError("`coefs.shape[0]` must be at most `self._max_deg + 1`.")
+
+            self.c_set_array(coefs, 0)
+
+        else:
+            raise TypeError("`coefs` must be a `list`, `tuple`, or `np.ndarray`.")
+
+        return self
+
+    def __setitem__(self, j, coef):
+        self.c_set_coef(j, coef)
+
+    def __getitem__(self, j):
+        return self.c_get_coef(j)
+
+    ###############################
+    #           C SUGAR           #
+
+    cdef ERR_t c_copy(self, Int_Polynomial_Array copy) except -1:
+
+        cdef COEF_t[:,:] array
+        cdef DEG_t j
+
+        self._check_is_set_raise()
+        copy._check_is_not_set_raise()
+
+        if not isinstance(copy, Int_Polynomial):
+            raise TypeError("`copy` must be of type `Int_Polynomial`.")
+
+        array = np.empty((1, self._max_deg + 1), dtype = COEF_DTYPE)
+
+        for j in range(self._max_deg + 1):
+            array[0, j] = self._ro_coefs[j]
+
+        copy.c_set_array(array, 0)
+        return 0
+
+    cdef ERR_t c_eval(self, MPF_t x, BOOL_t calc_deriv) except -1:
+
+        cdef:
+            MPF_t p
+            MPF_t q
+            COEF_t c
+            DEG_t j
+
+        self._check_is_set_raise()
+
+        if self._deg < 0:
+
+            p = mpf(0.0)
+            q = mpf(0.0)
+
+        else:
+
+            p = mpf(self._ro_coefs[self._deg])
+            q = mpf(0)
+
+            for j in range(self._deg - 1, -1, -1):
+
+                c  = self._ro_coefs[j]
+
+                if calc_deriv == TRUE:
+                    q = p + x * q
+
+                p = x * p + c
+
+        self.last_eval = p
+        self.last_deriv = q
+
+        return 0
+
+    ###############################
+    #          PY SUGAR           #
+
+    def get_ndarray(self):
+
+        self._check_is_set_raise()
+
+        if self._readonly == TRUE:
+            return np.asarray(self._ro_coefs)
+
+        else:
+            return np.asarray(self._rw_coefs)
+
+    def __copy__(self):
+
+        cdef Int_Polynomial copy = Int_Polynomial(self._max_deg)
+        self.c_copy(copy)
+        return copy
+
+    def deg(self):
+
+        self._check_is_set_raise()
+
+        return self._deg
+
+    def __call__(self, x, calc_deriv = False):
+
+        self.c_eval(x, TRUE if calc_deriv else FALSE)
+
+        if calc_deriv:
+            return self.last_eval, self.last_deriv
+
+        else:
+            return self.last_eval
+
+    ###############################
+    #         INVALIDATED         #
+
+    cdef ERR_t c_set_rw_array(self, COEF_t[:,:] array) except -1:
+        raise NotImplementedError("Cannot call `c_set_rw_array` on `Int_Polynomial`.")
+
+    cdef ERR_t c_set_ro_array(self, const COEF_t[:,:] array) except -1:
+        raise NotImplementedError("Cannot call `c_set_ro_array` on `Int_Polynomial`.")
+
+    cdef ERR_t c_set_poly(self, INDEX_t i, Int_Polynomial poly) except -1:
+        raise NotImplementedError("Cannot call `c_set_poly` on `Int_Polynomial`.")
+
+    cdef ERR_t c_get_poly(self, INDEX_t i, Int_Polynomial poly) except -1:
+        raise NotImplementedError("Cannot call `c_get_poly` on `Int_Polynomial`.")
+
+    cdef ERR_t c_set_degs(self) except -1:
+        raise NotImplementedError("Cannot call `c_set_degs` on `Int_Polynomial`.")
+
+    cpdef ERR_t append(self, Int_Polynomial poly) except -1:
+        raise NotImplementedError("Cannot call `append` on `Int_Polynomial`.")
