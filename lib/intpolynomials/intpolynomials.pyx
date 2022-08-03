@@ -16,10 +16,23 @@ def is_int(num):
 NP_INT_DTYPES = (np.int8, np.int16, np.int32, np.int64)
 NP_UINT_DTYPES = (np.uint8, np.uint16, np.uint32, np.uint64)
 
-cdef DEG_t calc_deg(const COEF_t[:,:] array, INDEX_t i):
+cdef BOOL_t FALSE = 0
+cdef BOOL_t TRUE = 1
+
+cdef ERR_t is_readonly(cnp.ndarray array) except -1:
+
+    if isinstance(array, np.memmap) and array.mode == "r":
+        return TRUE
+
+    else:
+        return FALSE
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef DEG_t calc_deg(const COEF_t[:,:] array, INDEX_t i) except? -1:
 
     cdef DEG_t j
-    cdef DEG_t max_deg = array.shape[1]
+    cdef DEG_t max_deg = array.shape[1] - 1
 
     for j in range(max_deg, -1, -1):
 
@@ -29,12 +42,6 @@ cdef DEG_t calc_deg(const COEF_t[:,:] array, INDEX_t i):
     return -1
 
 cdef class Int_Polynomial_Array:
-    """
-
-    Implementation notes: I couldn't figure out how to implement pure-C(++) iterators so there's a lot of repeated code
-    in this class.
-
-    """
 
     def __init__(self, max_deg):
 
@@ -106,7 +113,7 @@ cdef class Int_Polynomial_Array:
         :param array: The first axis indexes polynomials, the second coefficients.
         """
 
-        self._check_is_set_raise()
+        self._check_is_not_set_raise()
 
         if array.shape[1] > self._max_deg + 1:
             raise ValueError(f"Maximum size of `array.shape[1]` is `self._max_deg + 1`.")
@@ -122,7 +129,7 @@ cdef class Int_Polynomial_Array:
     cdef ERR_t c_set_ro_array(self, const COEF_t[:,:] array) except -1:
         """Set the non-`const` array of coefficients."""
 
-        self._check_is_set_raise()
+        self._check_is_not_set_raise()
 
         if array.shape[1] > self._max_deg + 1:
             raise ValueError(f"Maximum size of `array.shape[1]` is `self._max_deg + 1`.")
@@ -199,17 +206,17 @@ cdef class Int_Polynomial_Array:
 
         return 0
 
-    cpdef ERR_t zeros(self, INDEX_t length) except -1:
+    cpdef ERR_t empty(self, INDEX_t max_len) except -1:
 
         self._check_is_not_set_raise()
 
         self._readonly = FALSE
-        self._rw_array = np.zeros((length, self._max_deg), dtype = COEF_DTYPE)
+        self._rw_array = np.zeros((max_len, self._max_deg + 1), dtype = COEF_DTYPE)
         self._ro_array = self._rw_array
         self._is_set = TRUE
-        self._max_len = length
+        self._max_len = max_len
         self._curr_index = 0
-        self._degs = -np.ones(length, dtype = DEG_DTYPE)
+        self._degs = -np.ones(max_len, dtype = DEG_DTYPE)
 
     ###############################
     #     PY SETTERS/GETTERS      #
@@ -239,7 +246,7 @@ cdef class Int_Polynomial_Array:
             if coefs.shape[1] > self._max_deg + 1:
                 raise ValueError("`coefs.shape[1]` must be at most `self._max_deg + 1`.")
 
-            if isinstance(coefs, np.memmap) and coefs.mode == "r":
+            if is_readonly(coefs) == TRUE:
                 self.c_set_ro_array(coefs)
 
             else:
@@ -328,18 +335,21 @@ cdef class Int_Polynomial_Array:
         self._check_is_set_raise()
         other._check_is_set_raise()
 
-        if self._curr_index != other._curr_index:
-            return <ERR_t> FALSE
+        if type(self) != type(other):
+            return FALSE
+
+        if self._curr_index != other._curr_index or self._max_deg != other._max_deg:
+            return FALSE
 
         for i in range(self._curr_index):
 
             for j in range(self._max_deg + 1):
 
-                if self._ro_array[i,j] != other._ro_array[i,j]:
-                    return <ERR_t> FALSE
+                if self._ro_array[i, j] != other._ro_array[i, j]:
+                    return FALSE
 
         else:
-            return <ERR_t> TRUE
+            return TRUE
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -408,14 +418,7 @@ cdef class Int_Polynomial_Array:
 
     def __eq__(self, other):
 
-        if type(self) != type(other):
-            return False
-
-        if self.c_eq(other) == TRUE:
-            return True
-
-        else:
-            return False
+        return self.c_eq(other) == TRUE
 
     def __len__(self):
         return self._curr_index
@@ -434,13 +437,23 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
             raise ValueError("`Int_Polynomial` max deg must equal `array` max deg.")
 
         if array._readonly == TRUE:
+
             Int_Polynomial_Array.c_set_ro_array(self, array._ro_array)
+            self._ro_coefs = self._ro_array[index, :]
 
         else:
-            Int_Polynomial_Array.c_set_rw_array(self, array._rw_array)
 
-        self._curr_index = index
-        self.c_set_deg()
+            Int_Polynomial_Array.c_set_rw_array(self, array._rw_array)
+            self._rw_coefs = self._rw_array[index, :]
+            self._ro_coefs = self._rw_coefs
+
+        self._index = index
+
+        if self._degs_set == TRUE:
+            self._deg = self._degs[self._index]
+
+        else:
+            self._deg = calc_deg(self._ro_array, self._index)
 
         return 0
 
@@ -455,14 +468,13 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
         self._rw_coefs[j] = c
 
         if c != 0 and j > self._deg:
-
             self._deg = j
 
-            if self._degs_set == TRUE:
-                self._degs[self._curr_index] = self._deg
-
         elif c == 0 and j == self._deg:
-            self.c_set_deg()
+            self._deg = calc_deg(self._ro_array, self._index)
+
+        if self._degs_set == TRUE:
+            self._degs[self._index] = self._deg
 
         return 0
 
@@ -474,22 +486,6 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
         self._check_j_raise(j)
 
         return self._ro_coefs[j]
-
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    cdef ERR_t c_set_deg(self) except -1:
-
-        cdef DEG_t j
-
-        self._check_is_set_raise()
-
-        if self._degs_set == TRUE:
-            self._deg = self._degs[self._curr_index]
-
-        else:
-            self._deg = calc_deg(self._ro_array, self._curr_index)
-
-        return 0
 
     cpdef ERR_t zero_poly(self) except -1:
 
@@ -506,6 +502,8 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
     #     PY SETTERS/GETTERS      #
 
     def set(self, coefs):
+
+        cdef Int_Polynomial_Array array
 
         self._check_is_not_set_raise()
 
@@ -529,7 +527,15 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
             if coefs.shape[0] > self._max_deg + 1:
                 raise ValueError("`coefs.shape[0]` must be at most `self._max_deg + 1`.")
 
-            self.c_set_array(coefs, 0)
+            array = Int_Polynomial_Array(coefs.shape[0] - 1)
+
+            if is_readonly(coefs) == TRUE:
+                array.c_set_ro_array(coefs[np.newaxis, :])
+
+            else:
+                array.c_set_rw_array(coefs[np.newaxis, :])
+
+            self.c_set_array(array, 0)
 
         else:
             raise TypeError("`coefs` must be a `list`, `tuple`, or `np.ndarray`.")
@@ -598,6 +604,25 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
 
         return 0
 
+    cdef ERR_t c_eq(self, Int_Polynomial_Array other) except -1:
+
+        cdef DEG_t j
+
+        self._check_is_set_raise()
+        other._check_is_set_raise()
+
+        if type(self) != type(other) or self._deg != (<Int_Polynomial> other)._deg:
+            return FALSE
+
+        for j in range(self._deg + 1):
+
+            if self._ro_coefs[j] != (<Int_Polynomial> other)._ro_coefs[j]:
+                return FALSE
+
+        else:
+            return TRUE
+
+
     ###############################
     #          PY SUGAR           #
 
@@ -653,3 +678,6 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
 
     cpdef ERR_t append(self, Int_Polynomial poly) except -1:
         raise NotImplementedError("Cannot call `append` on `Int_Polynomial`.")
+
+    def __len__(self):
+        raise NotImplementedError("Cannot call `len` on `Int_Polynomial`.")

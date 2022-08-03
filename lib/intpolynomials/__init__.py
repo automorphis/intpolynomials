@@ -1,5 +1,5 @@
 
-from intpolynomials.intpolynomials import Int_Polynomial, Int_Polynomial_Array, zero_poly
+from intpolynomials.intpolynomials import Int_Polynomial, Int_Polynomial_Array
 from intpolynomials.registers import Int_Polynomial_Register
 
 def get_include():

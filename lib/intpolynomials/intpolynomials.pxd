@@ -8,10 +8,9 @@ ctypedef cnp.int_t          DPS_t
 ctypedef int                ERR_t
 ctypedef int                BOOL_t
 
-cdef BOOL_t FALSE = 0
-cdef BOOL_t TRUE = 1
+cdef ERR_t is_readonly(cnp.ndarray array) except -1
 
-cdef DEG_t calc_deg(const COEF_t[:,:] array, INDEX_t i)
+cdef DEG_t calc_deg(const COEF_t[:,:] array, INDEX_t i) except? -1
 
 cdef class Int_Polynomial_Array:
 
@@ -20,7 +19,7 @@ cdef class Int_Polynomial_Array:
         BOOL_t _degs_set
         BOOL_t _readonly
         INDEX_t _curr_index
-        INDEX_t _len
+        INDEX_t _max_len
         DEG_t _max_deg
         DEG_t[:] _degs
         const COEF_t[:,:] _ro_array
@@ -49,7 +48,7 @@ cdef class Int_Polynomial_Array:
 
     cdef ERR_t c_set_degs(self) except -1
 
-    cpdef ERR_t zeros(self, INDEX_t length) except -1
+    cpdef ERR_t empty(self, INDEX_t max_len) except -1
 
 
     cdef ERR_t c_copy(self, Int_Polynomial_Array copy) except -1
@@ -63,6 +62,7 @@ cdef class Int_Polynomial_Array:
 cdef class Int_Polynomial(Int_Polynomial_Array):
 
     cdef:
+        INDEX_t _index
         DEG_t _deg
         const COEF_t[:] _ro_coefs
         COEF_t[:] _rw_coefs
@@ -74,8 +74,6 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
     cdef ERR_t c_set_coef(self, DEG_t j, COEF_t c) except -1
 
     cdef COEF_t c_get_coef(self, DEG_t j) except? -1
-
-    cdef ERR_t c_set_deg(self) except -1
 
     cpdef ERR_t zero_poly(self) except -1
 
