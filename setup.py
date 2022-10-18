@@ -66,7 +66,8 @@ setup(
     install_requires = [
         'Cython>=0.23',
         'oldest_supported_numpy',
-        'mpmath>=1.1.0'
+        'mpmath>=1.1.0',
+        'xxhash>=3.0.0'
     ],
 
     zip_safe=False,
