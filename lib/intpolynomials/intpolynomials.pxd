@@ -26,7 +26,7 @@ cdef ERR_t is_readonly(cnp.ndarray array) except -1
 
 cdef DEG_t calc_deg(const COEF_t[:,:] array, INDEX_t i) except? -1
 
-cdef class Int_Polynomial_Array:
+cdef class IntPolynomialArray:
 
     cdef:
         BOOL_t _is_set
@@ -51,14 +51,13 @@ cdef class Int_Polynomial_Array:
 
     cdef inline ERR_t _check_degs_set_raise(self) except -1
 
-
     cdef ERR_t c_set_rw_array(self, COEF_t[:,:] mv) except -1
 
     cdef ERR_t c_set_ro_array(self, const COEF_t[:,:] mv) except -1
 
-    cdef ERR_t c_set_poly(self, INDEX_t i, Int_Polynomial poly) except -1
+    cdef ERR_t c_set_poly(self, INDEX_t i, IntPolynomial poly) except -1
 
-    cdef ERR_t c_get_poly(self, INDEX_t i, Int_Polynomial poly) except -1
+    cdef ERR_t c_get_poly(self, INDEX_t i, IntPolynomial poly) except -1
 
     cdef ERR_t c_set_degs(self) except -1
 
@@ -75,22 +74,22 @@ cdef class Int_Polynomial_Array:
     cpdef ERR_t get_max_deg(self) except? -1
 
 
-    cdef ERR_t c_copy(self, Int_Polynomial_Array copy) except -1
+    cdef ERR_t c_copy(self, IntPolynomialArray copy) except -1
 
     cpdef COEF_t max_abs_coef(self) except -1
 
-    cdef ERR_t c_eq(self, Int_Polynomial_Array other) except -1
+    cdef ERR_t c_eq(self, IntPolynomialArray other) except -1
 
-    cpdef ERR_t append(self, Int_Polynomial poly) except -1
+    cpdef ERR_t append(self, IntPolynomial poly) except -1
 
     cdef INDEX_t c_len(self) except -1
 
-cdef class Int_Polynomial_Array_Iter:
+cdef class IntPolynomialArray_Iter:
 
     cdef INDEX_t i
-    cdef Int_Polynomial_Array array
+    cdef IntPolynomialArray array
 
-cdef class Int_Polynomial(Int_Polynomial_Array):
+cdef class IntPolynomial(IntPolynomialArray):
 
     cdef:
         INDEX_t _index
@@ -103,7 +102,7 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
         BOOL_t _hashed
         COEF_t _lcd
 
-    cdef ERR_t c_set_array(self, Int_Polynomial_Array array, INDEX_t index) except -1
+    cdef ERR_t c_set_array(self, IntPolynomialArray array, INDEX_t index) except -1
 
     cdef ERR_t c_set_coef(self, DEG_t j, COEF_t c) except -1
 
@@ -116,11 +115,11 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
     cpdef ERR_t get_lcd(self) except -1
 
 
-    cdef ERR_t c_copy(self, Int_Polynomial_Array copy) except -1
+    cdef ERR_t c_copy(self, IntPolynomialArray copy) except -1
 
     cdef ERR_t c_eval(self, MPF_t x, BOOL_t calc_deriv) except -1
 
-    cdef ERR_t c_deriv(self, Int_Polynomial deriv) except -1
+    cdef ERR_t c_deriv(self, IntPolynomial deriv) except -1
 
     cpdef COEF_t content(self) except -1
 
@@ -128,23 +127,23 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
 
     # cdef ERR_t c_roots(self, object roots_and_roots_abs, INDEX_t max_steps, INDEX_t max_restarts) except -1
 
-    cdef ERR_t c_divide(self, Int_Polynomial denom, Int_Polynomial quo, Int_Polynomial rem) except -1
+    cdef ERR_t c_divide(self, IntPolynomial denom, IntPolynomial quo, IntPolynomial rem) except -1
 
     cdef ERR_t c_divide_int(self, COEF_t c) except -1
 
-    cdef ERR_t c_subtract(self, Int_Polynomial subtra, Int_Polynomial diff) except -1
+    cdef ERR_t c_subtract(self, IntPolynomial subtra, IntPolynomial diff) except -1
 
-    cdef ERR_t c_add(self, Int_Polynomial addend, Int_Polynomial _sum) except -1
+    cdef ERR_t c_add(self, IntPolynomial addend, IntPolynomial _sum) except -1
 
-    cdef ERR_t c_gcd(self, Int_Polynomial other, Int_Polynomial g) except -1
+    cdef ERR_t c_gcd(self, IntPolynomial other, IntPolynomial g) except -1
 
-    cdef ERR_t c_sqfree_fact(self, Int_Polynomial_Array fact) except -1
+    cdef ERR_t c_sqfree_fact(self, IntPolynomialArray fact) except -1
 
     cdef ERR_t c_is_sqfree(self) except -1
 
 cdef COEF_t mv_sum(COEF_t[:] array) except? -1
 
-cdef class Int_Polynomial_Iter:
+cdef class IntPolynomialIter:
 
     cdef:
         COEF_t _sum_abs_coefs

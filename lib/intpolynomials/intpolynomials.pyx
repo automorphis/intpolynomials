@@ -5,7 +5,7 @@ from intpolynomials cimport *
 import warnings
 
 import numpy as np
-from mpmath import mpf, mp, mpc, fabs
+from mpmath import mpf, mp, mpc, fabs, extraprec, extradps
 import xxhash
 
 try:
@@ -133,7 +133,7 @@ cdef DEG_t calc_deg(const COEF_t[:,:] array, INDEX_t i) except? -1:
 
     return -1
 
-cdef class Int_Polynomial_Array:
+cdef class IntPolynomialArray:
 
     def __init__(self, max_deg):
 
@@ -235,7 +235,7 @@ cdef class Int_Polynomial_Array:
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef ERR_t c_set_poly(self, INDEX_t i, Int_Polynomial poly) except -1:
+    cdef ERR_t c_set_poly(self, INDEX_t i, IntPolynomial poly) except -1:
 
         cdef DEG_t j
 
@@ -245,7 +245,7 @@ cdef class Int_Polynomial_Array:
         self._check_i_raise(i)
 
         if self._max_deg < poly._deg:
-            raise ValueError(f"`poly` degree is {poly._deg}, but max degree for this `Int_Polynomial_Array` is {self._max_deg}.")
+            raise ValueError(f"`poly` degree is {poly._deg}, but max degree for this `IntPolynomialArray` is {self._max_deg}.")
 
         for j in range(poly._deg + 1):
             self._rw_array[i, j] = poly._ro_coefs[j]
@@ -260,7 +260,7 @@ cdef class Int_Polynomial_Array:
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef ERR_t c_get_poly(self, INDEX_t i, Int_Polynomial poly) except -1:
+    cdef ERR_t c_get_poly(self, INDEX_t i, IntPolynomial poly) except -1:
         """Equivalent to `poly.c_set_array(self, i)`."""
 
         cdef DEG_t deg
@@ -353,7 +353,7 @@ cdef class Int_Polynomial_Array:
         elif isinstance(coefs, np.ndarray):
 
             if coefs.dtype in NP_UINT_DTYPES:
-                warnings.warn("Int_Polynomial.set : Casting from unsigned int to np.int64 is dangerous.")
+                warnings.warn("IntPolynomial.set : Casting from unsigned int to np.int64 is dangerous.")
 
             elif coefs.dtype not in NP_INT_DTYPES:
                 raise TypeError(f"`{coefs.dtype}` is not a Numpy int type.")
@@ -385,7 +385,7 @@ cdef class Int_Polynomial_Array:
 
     def __getitem__(self, i):
 
-        cdef Int_Polynomial poly = Int_Polynomial(self._max_deg)
+        cdef IntPolynomial poly = IntPolynomial(self._max_deg)
 
         self.c_get_poly(i, poly)
         return poly
@@ -393,7 +393,7 @@ cdef class Int_Polynomial_Array:
     ###############################
     #           C SUGAR           #
 
-    cdef ERR_t c_copy(self, Int_Polynomial_Array copy) except -1:
+    cdef ERR_t c_copy(self, IntPolynomialArray copy) except -1:
 
         cdef COEF_t[:,:] _rw_array_copy
 
@@ -445,7 +445,7 @@ cdef class Int_Polynomial_Array:
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef ERR_t c_eq(self, Int_Polynomial_Array other) except -1:
+    cdef ERR_t c_eq(self, IntPolynomialArray other) except -1:
 
         cdef INDEX_t i
         cdef DEG_t j
@@ -471,7 +471,7 @@ cdef class Int_Polynomial_Array:
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cpdef ERR_t append(self, Int_Polynomial poly) except -1:
+    cpdef ERR_t append(self, IntPolynomial poly) except -1:
 
         cdef DEG_t j
 
@@ -480,7 +480,7 @@ cdef class Int_Polynomial_Array:
         self._check_readwrite_raise()
 
         if self._curr_index >= self._max_len:
-            raise ValueError("This `Int_Polynomial_Array` is full.")
+            raise ValueError("This `IntPolynomialArray` is full.")
 
         # print(np.asarray(self._ro_array))
 
@@ -504,7 +504,7 @@ cdef class Int_Polynomial_Array:
     #          PY SUGAR           #
 
     def __iter__(self):
-        return Int_Polynomial_Array_Iter(self)
+        return IntPolynomialArray_Iter(self)
 
     def get_ndarray(self):
 
@@ -518,7 +518,7 @@ cdef class Int_Polynomial_Array:
 
     def __copy__(self):
 
-        cdef Int_Polynomial_Array copy = Int_Polynomial_Array(self._max_deg)
+        cdef IntPolynomialArray copy = IntPolynomialArray(self._max_deg)
         self.c_copy(copy)
         return copy
 
@@ -556,7 +556,7 @@ cdef class Int_Polynomial_Array:
     def __len__(self):
         return self._curr_index
 
-cdef class Int_Polynomial_Array_Iter:
+cdef class IntPolynomialArray_Iter:
 
     def __init__(self, array):
 
@@ -565,20 +565,20 @@ cdef class Int_Polynomial_Array_Iter:
 
     def __next__(self):
 
-        cdef Int_Polynomial poly
+        cdef IntPolynomial poly
 
         if self.i >= self.array._curr_index:
             raise StopIteration
 
         else:
 
-            poly = Int_Polynomial(self.array._max_deg)
+            poly = IntPolynomial(self.array._max_deg)
             self.array.c_get_poly(self.i, poly)
             self.i += 1
             return poly
 
 
-cdef class Int_Polynomial(Int_Polynomial_Array):
+cdef class IntPolynomial(IntPolynomialArray):
 
     def __init__(self, max_deg):
         
@@ -588,21 +588,21 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
     ###############################
     #      C SETTERS/GETTERS      #
 
-    cdef ERR_t c_set_array(self, Int_Polynomial_Array array, INDEX_t index) except -1:
+    cdef ERR_t c_set_array(self, IntPolynomialArray array, INDEX_t index) except -1:
 
         self._check_is_not_set_raise()
 
         if self._max_deg != array._max_deg:
-            raise ValueError("`Int_Polynomial` max deg must equal `array` max deg.")
+            raise ValueError("`IntPolynomial` max deg must equal `array` max deg.")
 
         if array._readonly == TRUE:
 
-            Int_Polynomial_Array.c_set_ro_array(self, array._ro_array)
+            IntPolynomialArray.c_set_ro_array(self, array._ro_array)
             self._ro_coefs = self._ro_array[index, :]
 
         else:
 
-            Int_Polynomial_Array.c_set_rw_array(self, array._rw_array)
+            IntPolynomialArray.c_set_rw_array(self, array._rw_array)
             self._rw_coefs = self._rw_array[index, :]
             self._ro_coefs = self._rw_coefs
 
@@ -654,12 +654,12 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
     cpdef ERR_t zero_poly(self) except -1:
 
         cdef COEF_t[:,:] array
-        cdef Int_Polynomial_Array iparray
+        cdef IntPolynomialArray iparray
 
         self._check_is_not_set_raise()
 
         array = np.zeros((1, self._max_deg + 1), dtype = COEF_DTYPE)
-        iparray = Int_Polynomial_Array(self._max_deg)
+        iparray = IntPolynomialArray(self._max_deg)
         iparray.c_set_rw_array(array)
         self.c_set_array(iparray, 0)
         self._deg = -1
@@ -685,7 +685,7 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
 
     def set(self, coefs):
 
-        cdef Int_Polynomial_Array array
+        cdef IntPolynomialArray array
 
         self._check_is_not_set_raise()
 
@@ -695,7 +695,7 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
         elif isinstance(coefs, np.ndarray):
 
             if coefs.dtype in NP_UINT_DTYPES:
-                warnings.warn("Int_Polynomial.set : Casting from unsigned int to np.int64 is dangerous.")
+                warnings.warn("IntPolynomial.set : Casting from unsigned int to np.int64 is dangerous.")
 
             elif coefs.dtype not in NP_INT_DTYPES:
                 raise TypeError(f"`{coefs.dtype}` is not a Numpy int type.")
@@ -709,7 +709,7 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
             if coefs.shape[0] > self._max_deg + 1:
                 raise ValueError("`coefs.shape[0]` must be at most `self._max_deg + 1`.")
 
-            array = Int_Polynomial_Array(coefs.shape[0] - 1)
+            array = IntPolynomialArray(coefs.shape[0] - 1)
 
             if is_readonly(coefs) == TRUE:
                 array.c_set_ro_array(coefs[np.newaxis, :])
@@ -733,28 +733,28 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
     ###############################
     #           C SUGAR           #
 
-    cdef ERR_t c_copy(self, Int_Polynomial_Array copy) except -1:
+    cdef ERR_t c_copy(self, IntPolynomialArray copy) except -1:
 
         cdef DEG_t j
-        cdef Int_Polynomial_Array array
+        cdef IntPolynomialArray array
 
         self._check_is_set_raise()
         copy._check_is_not_set_raise()
 
-        if not isinstance(copy, Int_Polynomial):
-            raise TypeError("`copy` must be of type `Int_Polynomial`.")
+        if not isinstance(copy, IntPolynomial):
+            raise TypeError("`copy` must be of type `IntPolynomial`.")
 
         if copy._max_deg != self._max_deg:
             raise ValueError("`copy` has the wrong max degree.")
 
-        array = Int_Polynomial_Array(self._max_deg)
+        array = IntPolynomialArray(self._max_deg)
         array.zeros(1)
 
         for j in range(self._deg + 1):
             array._rw_array[0, j] = self._ro_coefs[j]
 
-        (<Int_Polynomial> copy).c_set_array(array, 0)
-        (<Int_Polynomial> copy).set_lcd(self._lcd)
+        (<IntPolynomial> copy).c_set_array(array, 0)
+        (<IntPolynomial> copy).set_lcd(self._lcd)
         return 0
 
     @cython.boundscheck(False)
@@ -795,22 +795,22 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef ERR_t c_eq(self, Int_Polynomial_Array other) except -1:
+    cdef ERR_t c_eq(self, IntPolynomialArray other) except -1:
 
         cdef DEG_t j
 
         self._check_is_set_raise()
         other._check_is_set_raise()
 
-        if type(self) != type(other) or self._deg != (<Int_Polynomial> other)._deg:
+        if type(self) != type(other) or self._deg != (<IntPolynomial> other)._deg:
             return FALSE
 
-        if self._lcd != (<Int_Polynomial> other)._lcd:
+        if self._lcd != (<IntPolynomial> other)._lcd:
             return FALSE
 
         for j in range(self._deg + 1):
 
-            if self._ro_coefs[j] != (<Int_Polynomial> other)._ro_coefs[j]:
+            if self._ro_coefs[j] != (<IntPolynomial> other)._ro_coefs[j]:
                 return FALSE
 
         else:
@@ -818,7 +818,7 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef ERR_t c_deriv(self, Int_Polynomial deriv) except -1:
+    cdef ERR_t c_deriv(self, IntPolynomial deriv) except -1:
 
         cdef DEG_t j
 
@@ -896,8 +896,8 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
 
 
 
-        # cdef Int_Polynomial_Array fact
-        # cdef Int_Polynomial sqf
+        # cdef IntPolynomialArray fact
+        # cdef IntPolynomial sqf
         # cdef COEF_t leading, scale, discr
         # cdef INDEX_t step, restart, i
         # cdef DEG_t j, j0
@@ -928,7 +928,7 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
         # if max_restarts <= 0:
         #     raise ValueError("`max_restarts` must be positive.")
         #
-        # fact = Int_Polynomial_Array(self._max_deg)
+        # fact = IntPolynomialArray(self._max_deg)
         # self.c_sqfree_fact(fact)
         #
         # with extradps(self._deg):
@@ -937,7 +937,7 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
         #
         #     for i in range(1, fact.c_len()):
         #
-        #         sqf = Int_Polynomial(fact._max_deg)
+        #         sqf = IntPolynomial(fact._max_deg)
         #         fact.c_get_poly(i, sqf)
         #
         #         if sqf._deg == 0:
@@ -1098,14 +1098,14 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef ERR_t c_divide(self, Int_Polynomial denom, Int_Polynomial quo, Int_Polynomial rem) except -1:
+    cdef ERR_t c_divide(self, IntPolynomial denom, IntPolynomial quo, IntPolynomial rem) except -1:
 
         cdef cnp.ndarray[COEF_t, ndim = 2] _rem, _quo
         cdef cnp.ndarray[COEF_t, ndim = 1] _denom, _quo_bottoms, _quo_tops
         cdef DEG_t j, quo_deg, rem_deg
         cdef COEF_t a, b, ap, bp, g, cum_quo_bottom, quo_lcd, quo_gcd, rem_lcd, rem_gcd
-        cdef Int_Polynomial_Array quo_int_poly_array
-        cdef Int_Polynomial_Array rem_int_poly_array
+        cdef IntPolynomialArray quo_int_poly_array
+        cdef IntPolynomialArray rem_int_poly_array
 
         self._check_is_set_raise()
         denom._check_is_set_raise()
@@ -1204,12 +1204,12 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
             _rem *= -1
             rem_lcd *= -1
 
-        quo_int_poly_array = Int_Polynomial_Array(quo_deg)
+        quo_int_poly_array = IntPolynomialArray(quo_deg)
         quo_int_poly_array.c_set_rw_array(_quo)
         quo.c_set_array(quo_int_poly_array, 0)
         quo._lcd = quo_lcd
 
-        rem_int_poly_array = Int_Polynomial_Array(rem_deg)
+        rem_int_poly_array = IntPolynomialArray(rem_deg)
         rem_int_poly_array.c_set_rw_array(_rem[:, :rem_deg + 1])
         rem.set_max_deg(rem_deg )
         rem.c_set_array(rem_int_poly_array, 0)
@@ -1228,7 +1228,7 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
 
         return 0
 
-    cdef ERR_t c_subtract(self, Int_Polynomial subtra, Int_Polynomial diff) except -1:
+    cdef ERR_t c_subtract(self, IntPolynomial subtra, IntPolynomial diff) except -1:
 
         cdef DEG_t j
 
@@ -1264,7 +1264,7 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
 
         return 0
 
-    cdef ERR_t c_add(self, Int_Polynomial addend, Int_Polynomial _sum) except -1:
+    cdef ERR_t c_add(self, IntPolynomial addend, IntPolynomial _sum) except -1:
 
         cdef DEG_t j
 
@@ -1300,10 +1300,10 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
 
         return 0
 
-    cdef ERR_t c_gcd(self, Int_Polynomial other, Int_Polynomial g) except -1:
+    cdef ERR_t c_gcd(self, IntPolynomial other, IntPolynomial g) except -1:
 
         cdef DEG_t j
-        cdef Int_Polynomial a, b, r, q
+        cdef IntPolynomial a, b, r, q
         cdef COEF_t g_cont, sign
 
         self._check_is_set_raise()
@@ -1345,8 +1345,8 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
             b = other
             a = self
 
-        r = Int_Polynomial(0)
-        q = Int_Polynomial(b._deg - a._deg)
+        r = IntPolynomial(0)
+        q = IntPolynomial(b._deg - a._deg)
         b.c_divide(a, q, r)
 
         while r._deg != -1:
@@ -1355,8 +1355,8 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
             r.set_lcd(1)
             b = a
             a = r
-            r = Int_Polynomial(0)
-            q = Int_Polynomial(b._deg - a._deg)
+            r = IntPolynomial(0)
+            q = IntPolynomial(b._deg - a._deg)
             b.c_divide(a, q, r)
 
         g.set_max_deg(a._deg)
@@ -1374,9 +1374,9 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
 
         return 0
 
-    cdef ERR_t c_sqfree_fact(self, Int_Polynomial_Array fact) except -1:
+    cdef ERR_t c_sqfree_fact(self, IntPolynomialArray fact) except -1:
 
-        cdef Int_Polynomial f, fp, a, b, new_b, bp, c, d, r, cont_poly
+        cdef IntPolynomial f, fp, a, b, new_b, bp, c, d, r, cont_poly
         cdef INDEX_t i
         cdef DEG_t b_deg_diff
         cdef COEF_t cont
@@ -1391,7 +1391,7 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
             raise ValueError("`fact` has wrong max degree.")
 
         fact.empty(self._max_deg + 1)
-        f = Int_Polynomial(self._max_deg)
+        f = IntPolynomial(self._max_deg)
         self.c_copy(f)
         cont = f.content()
 
@@ -1399,7 +1399,7 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
             cont = -cont
 
         f.c_divide_int(cont)
-        cont_poly = Int_Polynomial(self._max_deg)
+        cont_poly = IntPolynomial(self._max_deg)
         cont_poly.zero_poly()
         cont_poly.c_set_coef(0, cont)
         fact.append(cont_poly)
@@ -1407,29 +1407,29 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
         if self._deg == 0:
             return 0
 
-        fp = Int_Polynomial(f._deg - 1)
+        fp = IntPolynomial(f._deg - 1)
         f.c_deriv(fp)
-        a = Int_Polynomial(0)
+        a = IntPolynomial(0)
         f.c_gcd(fp, a)
-        b = Int_Polynomial(f._deg - a._deg)
-        r = Int_Polynomial(0)
+        b = IntPolynomial(f._deg - a._deg)
+        r = IntPolynomial(0)
         f.c_divide(a, b, r)
         b_deg_diff = f._deg - b._deg
-        c = Int_Polynomial(fp._deg - a._deg)
-        r = Int_Polynomial(0)
+        c = IntPolynomial(fp._deg - a._deg)
+        r = IntPolynomial(0)
         fp.c_divide(a, c, r)
-        bp = Int_Polynomial(b._deg - 1)
+        bp = IntPolynomial(b._deg - 1)
         b.c_deriv(bp)
-        d = Int_Polynomial(c._max_deg)
+        d = IntPolynomial(c._max_deg)
         c.c_subtract(bp, d)
 
         for i in range(1, self._max_deg + 1):
 
-            a = Int_Polynomial(0)
+            a = IntPolynomial(0)
             b.c_gcd(d, a)
             fact.append(a)
-            new_b = Int_Polynomial(b._deg - a._deg)
-            r = Int_Polynomial(0)
+            new_b = IntPolynomial(b._deg - a._deg)
+            r = IntPolynomial(0)
             b.c_divide(a, new_b, r)
             b_deg_diff = b._deg - new_b._deg
             b = new_b
@@ -1437,23 +1437,23 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
             if b._deg == 0:
                 return 0
 
-            bp = Int_Polynomial(b._deg - 1)
+            bp = IntPolynomial(b._deg - 1)
             b.c_deriv(bp)
-            c = Int_Polynomial(d._deg - a._deg)
-            r = Int_Polynomial(0)
+            c = IntPolynomial(d._deg - a._deg)
+            r = IntPolynomial(0)
             d.c_divide(a, c, r)
-            d = Int_Polynomial(c._deg)
+            d = IntPolynomial(c._deg)
             c.c_subtract(bp, d)
 
         return 0
 
     cdef ERR_t c_is_sqfree(self) except -1:
 
-        cdef Int_Polynomial_Array fact
+        cdef IntPolynomialArray fact
 
         self._check_is_set_raise()
 
-        fact = Int_Polynomial_Array(self._max_deg)
+        fact = IntPolynomialArray(self._max_deg)
         self.c_sqfree_fact(fact)
 
         if len(fact) == 2:
@@ -1486,20 +1486,20 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
 
         return self._hash
 
-    def gcd(self, Int_Polynomial other):
+    def gcd(self, IntPolynomial other):
 
-        cdef Int_Polynomial g
+        cdef IntPolynomial g
 
-        g = Int_Polynomial(0)
+        g = IntPolynomial(0)
         self.c_gcd(other, g)
 
         return g
 
     def sqfree_fact(self):
 
-        cdef Int_Polynomial_Array fact
+        cdef IntPolynomialArray fact
 
-        fact = Int_Polynomial_Array(self._deg)
+        fact = IntPolynomialArray(self._deg)
         self.c_sqfree_fact(fact)
 
         return fact
@@ -1532,7 +1532,7 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
 
     def __copy__(self):
 
-        cdef Int_Polynomial copy = Int_Polynomial(self._max_deg)
+        cdef IntPolynomial copy = IntPolynomial(self._max_deg)
         self.c_copy(copy)
         return copy
 
@@ -1564,33 +1564,33 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
 
     def deriv(self):
 
-        cdef Int_Polynomial deriv = Int_Polynomial(self._deg - 1)
+        cdef IntPolynomial deriv = IntPolynomial(self._deg - 1)
         self.c_deriv(deriv)
         return deriv
 
-    def divide(self, Int_Polynomial denom):
+    def divide(self, IntPolynomial denom):
 
-        cdef Int_Polynomial quo, rem
+        cdef IntPolynomial quo, rem
 
         denom._check_is_set_raise()
         self._check_is_set_raise()
 
         if denom._deg > self._deg:
-            quo = Int_Polynomial(-1)
+            quo = IntPolynomial(-1)
 
         else:
-            quo = Int_Polynomial(self._deg - denom._deg)
+            quo = IntPolynomial(self._deg - denom._deg)
 
-        rem = Int_Polynomial(0)
+        rem = IntPolynomial(0)
         self.c_divide(denom, quo, rem)
 
         return quo, rem
 
-    def gcd(self, Int_Polynomial other):
+    def gcd(self, IntPolynomial other):
 
-        cdef Int_Polynomial g
+        cdef IntPolynomial g
 
-        g = Int_Polynomial(0)
+        g = IntPolynomial(0)
         self.c_gcd(other, g)
 
         return g
@@ -1600,45 +1600,50 @@ cdef class Int_Polynomial(Int_Polynomial_Array):
         if PolynomialRing is None:
             raise NotImplementedError("Must have SageMath installed.")
 
-        roots_and_mults = PolynomialRing(ComplexField(mp.prec), "z")(list(np.asarray(self._ro_coefs))).roots()
+        if self._deg <= 0:
+            raise ValueError
 
-        if not ret_abs:
-            return roots_and_mults
+        with extradps(self._deg):
 
-        else:
+            roots_and_mults = PolynomialRing(ComplexField(mp.prec), "z")(list(np.asarray(self._ro_coefs))).roots()
 
-            roots_and_abs_and_mults = []
+            if not ret_abs:
+                return roots_and_mults
 
-            for i, (root, mult) in enumerate(roots_and_mults):
+            else:
 
-                root = mpc(root.real(), root.imag())
-                roots_and_abs_and_mults.append((root, fabs(root), mult))
+                roots_and_abs_and_mults = []
 
-            return roots_and_abs_and_mults
+                for i, (root, mult) in enumerate(roots_and_mults):
+
+                    root = mpc(root.real(), root.imag())
+                    roots_and_abs_and_mults.append((root, fabs(root), mult))
+
+                return roots_and_abs_and_mults
 
     ###############################
     #         INVALIDATED         #
 
     cdef ERR_t c_set_rw_array(self, COEF_t[:,:] array) except -1:
-        raise NotImplementedError("Cannot call `c_set_rw_array` on `Int_Polynomial`.")
+        raise NotImplementedError("Cannot call `c_set_rw_array` on `IntPolynomial`.")
 
     cdef ERR_t c_set_ro_array(self, const COEF_t[:,:] array) except -1:
-        raise NotImplementedError("Cannot call `c_set_ro_array` on `Int_Polynomial`.")
+        raise NotImplementedError("Cannot call `c_set_ro_array` on `IntPolynomial`.")
 
-    cdef ERR_t c_set_poly(self, INDEX_t i, Int_Polynomial poly) except -1:
-        raise NotImplementedError("Cannot call `c_set_poly` on `Int_Polynomial`.")
+    cdef ERR_t c_set_poly(self, INDEX_t i, IntPolynomial poly) except -1:
+        raise NotImplementedError("Cannot call `c_set_poly` on `IntPolynomial`.")
 
-    cdef ERR_t c_get_poly(self, INDEX_t i, Int_Polynomial poly) except -1:
-        raise NotImplementedError("Cannot call `c_get_poly` on `Int_Polynomial`.")
+    cdef ERR_t c_get_poly(self, INDEX_t i, IntPolynomial poly) except -1:
+        raise NotImplementedError("Cannot call `c_get_poly` on `IntPolynomial`.")
 
     cdef ERR_t c_set_degs(self) except -1:
-        raise NotImplementedError("Cannot call `c_set_degs` on `Int_Polynomial`.")
+        raise NotImplementedError("Cannot call `c_set_degs` on `IntPolynomial`.")
 
-    cpdef ERR_t append(self, Int_Polynomial poly) except -1:
-        raise NotImplementedError("Cannot call `append` on `Int_Polynomial`.")
+    cpdef ERR_t append(self, IntPolynomial poly) except -1:
+        raise NotImplementedError("Cannot call `append` on `IntPolynomial`.")
 
     def __len__(self):
-        raise NotImplementedError("Cannot call `len` on `Int_Polynomial`.")
+        raise NotImplementedError("Cannot call `len` on `IntPolynomial`.")
 
 cdef COEF_t mv_sum(COEF_t[:] array) except? -1:
 
@@ -1650,7 +1655,7 @@ cdef COEF_t mv_sum(COEF_t[:] array) except? -1:
 
     return s
 
-cdef class Int_Polynomial_Iter:
+cdef class IntPolynomialIter:
 
     def __init__(self, deg, sum_abs_coefs, monic = True, last_poly = None):
 
@@ -1663,8 +1668,8 @@ cdef class Int_Polynomial_Iter:
         if not is_int(deg):
             raise TypeError("`deg` must be of type `int`.")
 
-        if last_poly is not None and not isinstance(last_poly, Int_Polynomial):
-            raise TypeError("`last_poly` must be of type `Int_Polynomial`.")
+        if last_poly is not None and not isinstance(last_poly, IntPolynomial):
+            raise TypeError("`last_poly` must be of type `IntPolynomial`.")
 
         if sum_abs_coefs < 1:
             raise ValueError("`sum_abs_coefs` must be at least 1.")
@@ -1729,8 +1734,8 @@ cdef class Int_Polynomial_Iter:
 
     def __next__(self):
 
-        cdef Int_Polynomial_Array array
-        cdef Int_Polynomial ret
+        cdef IntPolynomialArray array
+        cdef IntPolynomial ret
 
         if self._monic == TRUE:
             self.c_monic_next()
@@ -1738,9 +1743,9 @@ cdef class Int_Polynomial_Iter:
         else:
             self.c_nonmonic_next()
 
-        array = Int_Polynomial_Array(self._deg)
+        array = IntPolynomialArray(self._deg)
         array.c_set_rw_array(self._ret)
-        ret = Int_Polynomial(self._deg)
+        ret = IntPolynomial(self._deg)
         ret.c_set_array(array, 0)
 
         return ret

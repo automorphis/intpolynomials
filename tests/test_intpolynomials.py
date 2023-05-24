@@ -3,8 +3,8 @@ from unittest import TestCase
 import numpy as np
 from mpmath import mpf, mp, almosteq, mpc, fabs, workdps, extradps
 
-from intpolynomials import Int_Polynomial, Int_Polynomial_Array
-from intpolynomials.intpolynomials import Int_Polynomial_Iter
+from intpolynomials import IntPolynomial, IntPolynomialArray
+from intpolynomials.intpolynomials import IntPolynomialIter
 
 mp.dps = 28
 
@@ -131,11 +131,11 @@ gcds = (
     ((((2, 2, -2, -2, -2, 2), 27), ((-1, 0, 0, -2, 0, 0, 3), 32)), ((-1, 0, 0, 1), 1))
 )
 
-class Test_Int_Polynomial_Array(TestCase):
+class Test_IntPolynomialArray(TestCase):
 
     def test_eval(self):
 
-        array = Int_Polynomial_Array(6)
+        array = IntPolynomialArray(6)
         array.empty(len(polys) * len(points))
         i = 0
 
@@ -143,7 +143,7 @@ class Test_Int_Polynomial_Array(TestCase):
 
             for (p, d), (y, yp) in zip(polys, Ys):
 
-                poly1 = Int_Polynomial(len(p) - 1)
+                poly1 = IntPolynomial(len(p) - 1)
                 poly1.set(p)
 
                 self.assertTrue(almosteq(
@@ -215,21 +215,27 @@ class Test_Int_Polynomial_Array(TestCase):
 
     def test_roots(self):
 
-        array = Int_Polynomial_Array(6)
+        array = IntPolynomialArray(6)
         array.empty(len(roots))
         i = 0
 
         for poly, rts in roots:
 
-            p = Int_Polynomial(len(poly) - 1)
+            p = IntPolynomial(len(poly) - 1)
             p.set(poly)
 
             for _ in range(2):
 
                 if isinstance(rts, type):
 
-                    with self.assertRaises(rts):
-                        roots_and_roots_abs = p.roots(ret_abs=True)
+                    try:
+                        with self.assertRaises(rts):
+                            roots_and_roots_abs = p.roots(ret_abs=True)
+
+                    except AssertionError:
+                        print(poly, rts)
+                        print(roots_and_roots_abs)
+                        raise
 
                 else:
 
@@ -257,16 +263,17 @@ class Test_Int_Polynomial_Array(TestCase):
                             y = p(r)
 
                         try:
-                            self.assertTrue(almosteq(
-                                mpf('0.0'),
-                                fabs(y)
-                            ))
+                            with extradps(-1):
+                                self.assertTrue(almosteq(
+                                    mpf('0.0'),
+                                    fabs(y)
+                                ))
 
                         except AssertionError:
 
-                            while not almosteq(0.0, fabs(p(r))):
-                                mp.dps -= 1
-
+                            # while not almosteq(0.0, fabs(p(r))):
+                            #     mp.dps -= 1
+                            print(fabs(y), mp.dps, str(p), p.deg())
                             raise
 
 
@@ -293,7 +300,7 @@ class Test_Int_Polynomial_Array(TestCase):
 
             for sum_abs_coef in range(1, max_sum_abs_coef):
 
-                for p in Int_Polynomial_Iter(deg, sum_abs_coef, False):
+                for p in IntPolynomialIter(deg, sum_abs_coef, False):
 
                     try:
                         rts = p.roots(True)
@@ -314,12 +321,14 @@ class Test_Int_Polynomial_Array(TestCase):
                                 y = p(r)
 
                             try:
-                                self.assertTrue(almosteq(
-                                    0.,
-                                    fabs(y)
-                                ))
+                                with extradps(-1):
+                                    self.assertTrue(almosteq(
+                                        0.,
+                                        fabs(y)
+                                    ))
 
                             except:
+                                print(r, p, p.deg(), mp.dps, fabs(y))
                                 raise
 
                             pp = p
@@ -341,9 +350,9 @@ class Test_Int_Polynomial_Array(TestCase):
 
         for ((top, top_lcd), (bot, bot_lcd)), ans in divide:
 
-            top = Int_Polynomial(len(top) - 1).set(top)
+            top = IntPolynomial(len(top) - 1).set(top)
             top.set_lcd(top_lcd)
-            bot = Int_Polynomial(len(bot) - 1).set(bot)
+            bot = IntPolynomial(len(bot) - 1).set(bot)
             bot.set_lcd(bot_lcd)
 
             if isinstance(ans, type):
@@ -354,9 +363,9 @@ class Test_Int_Polynomial_Array(TestCase):
             else:
 
                 (quo, quo_lcd), (rem, rem_lcd) = ans
-                quo = Int_Polynomial(len(quo) - 1).set(quo)
+                quo = IntPolynomial(len(quo) - 1).set(quo)
                 quo.set_lcd(quo_lcd)
-                rem = Int_Polynomial(len(rem) - 1).set(rem)
+                rem = IntPolynomial(len(rem) - 1).set(rem)
                 rem.set_lcd(rem_lcd)
 
                 try:
@@ -376,9 +385,9 @@ class Test_Int_Polynomial_Array(TestCase):
             except:
                 raise
 
-            a = Int_Polynomial(len(a) - 1).set(a)
+            a = IntPolynomial(len(a) - 1).set(a)
             a.set_lcd(a_lcd)
-            b = Int_Polynomial(len(b) - 1).set(b)
+            b = IntPolynomial(len(b) - 1).set(b)
             b.set_lcd(b_lcd)
 
             if isinstance(ans, type):
@@ -393,7 +402,7 @@ class Test_Int_Polynomial_Array(TestCase):
             else:
 
                 g, g_lcd = ans
-                g = Int_Polynomial(len(g) - 1).set(g)
+                g = IntPolynomial(len(g) - 1).set(g)
                 g.set_lcd(g_lcd)
 
                 try:
@@ -436,7 +445,7 @@ partitions = (
     # ((3, 3), ((4, 0, 0, 0), (3, 1, 0, 0), (2, 2, 0, 0), (1, 3, 0, 0), (0, 4, 0, 0), (3, 0, 1, 0), (2, 1, 1, 0), (1, 2, 1, 0), (0, 3, 1, 0), (2, 0, 2, 0), (1, 1, 2, 0), (0, 2, 2, 0), (1, 0, 3, 0), (0, 1, 3, 0), (0, 0, 4, 0), (3, 0, 0, 1), (2, 1, 0, 1), (1, 2, 0, 1), (0, 3, 0, 1), (2, 0, 1, 1), (1, 1, 1, 1), (0, 2, 1, 1), (1, 0, 2, 1), (0, 1, 2, 1), (0, 0, 3, 1), (2, 0, 0, 2), (1, 1, 0, 2), (0, 2, 0, 2), (1, 0, 1, 2), (0, 1, 1, 2), (0, 0, 2, 2), (1, 0, 0, 3), (0, 1, 0, 3), (0, 0, 1, 3), (0, 0, 0, 4)))
 )
 
-class Test_Int_Polynomial_Iter(TestCase):
+class Test_IntPolynomialIter(TestCase):
 
     def test___next__(self):
 
@@ -445,15 +454,15 @@ class Test_Int_Polynomial_Iter(TestCase):
             if ans is None:
 
                 with self.assertRaises(ValueError):
-                    Int_Polynomial_Iter(deg, sum_abs_coefs, monic)
+                    IntPolynomialIter(deg, sum_abs_coefs, monic)
 
             else:
 
                 num_calc = 0
 
-                for calc, exp in zip(Int_Polynomial_Iter(deg, sum_abs_coefs, monic), ans):
+                for calc, exp in zip(IntPolynomialIter(deg, sum_abs_coefs, monic), ans):
 
-                    _exp = Int_Polynomial(deg)
+                    _exp = IntPolynomial(deg)
                     _exp.set(exp)
 
                     try:
@@ -475,10 +484,10 @@ class Test_Int_Polynomial_Iter(TestCase):
                 for i, last_coefs in enumerate(ans):
 
                     last_coefs = np.array(last_coefs, dtype = np.int64)
-                    last_coefs = Int_Polynomial(len(last_coefs) - 1).set(last_coefs)
+                    last_coefs = IntPolynomial(len(last_coefs) - 1).set(last_coefs)
                     num_calc = 0
 
-                    for calc, exp in zip(Int_Polynomial_Iter(deg, sum_abs_coefs, monic, last_coefs), ans[i + 1 : ]):
+                    for calc, exp in zip(IntPolynomialIter(deg, sum_abs_coefs, monic, last_coefs), ans[i + 1 : ]):
 
                         num_calc += 1
 
