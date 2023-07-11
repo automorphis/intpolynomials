@@ -3,9 +3,10 @@ cimport cython
 from intpolynomials cimport *
 
 import warnings
+import math
 
 import numpy as np
-from mpmath import mpf, mp, mpc, fabs, extraprec, extradps
+import mpmath
 import xxhash
 
 try:
@@ -581,7 +582,7 @@ cdef class IntPolynomialArray_Iter:
 cdef class IntPolynomial(IntPolynomialArray):
 
     def __init__(self, max_deg):
-        
+
         self._hashed = FALSE
         super().__init__(max_deg)
 
@@ -771,13 +772,13 @@ cdef class IntPolynomial(IntPolynomialArray):
 
         if self._deg < 0:
 
-            p = mpf(0.0)
-            q = mpf(0.0)
+            p = mpmath.mpf(0.0)
+            q = mpmath.mpf(0.0)
 
         else:
 
-            p = mpf(self._ro_coefs[self._deg])
-            q = mpf(0)
+            p = mpmath.mpf(self._ro_coefs[self._deg])
+            q = mpmath.mpf(0)
 
             for j in range(self._deg - 1, -1, -1):
 
@@ -1595,31 +1596,31 @@ cdef class IntPolynomial(IntPolynomialArray):
 
         return g
 
-    def roots(self, ret_abs = False):
-
-        if PolynomialRing is None:
-            raise NotImplementedError("Must have SageMath installed.")
+    cpdef DPS_t extradps(self, MPF_t x) except -1:
 
         if self._deg <= 0:
             raise ValueError
 
-        with extradps(self._deg):
+        return (
+            2 + # just cause
+            math.ceil(math.log10(self._deg)) +
+            math.ceil(math.log10(self.max_abs_coef())) +
+            math.ceil((self._deg - 1) * math.log10(int(x) + 1))
+        )
 
-            roots_and_mults = PolynomialRing(ComplexField(mp.prec), "z")(list(np.asarray(self._ro_coefs))).roots()
+    def roots(self):
 
-            if not ret_abs:
-                return roots_and_mults
+        roots_and_mults = PolynomialRing(ComplexField(mpmath.mp.prec), "z")(
+            list(np.asarray(self._ro_coefs, dtype = int))
+        ).roots()
+        roots_and_abs_and_mults = []
 
-            else:
+        for i, (root, mult) in enumerate(roots_and_mults):
 
-                roots_and_abs_and_mults = []
+            root = mpmath.mpc(root.real(), root.imag())
+            roots_and_abs_and_mults.append((root, abs(root), mult))
 
-                for i, (root, mult) in enumerate(roots_and_mults):
-
-                    root = mpc(root.real(), root.imag())
-                    roots_and_abs_and_mults.append((root, fabs(root), mult))
-
-                return roots_and_abs_and_mults
+        return roots_and_abs_and_mults
 
     ###############################
     #         INVALIDATED         #

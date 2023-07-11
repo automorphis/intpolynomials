@@ -141,6 +141,8 @@ cdef class IntPolynomial(IntPolynomialArray):
 
     cdef ERR_t c_is_sqfree(self) except -1
 
+    cpdef DPS_t extradps(self, MPF_t x) except -1
+
 cdef COEF_t mv_sum(COEF_t[:] array) except? -1
 
 cdef class IntPolynomialIter:
