@@ -228,18 +228,12 @@ class Test_IntPolynomialArray(TestCase):
 
                 if isinstance(rts, type):
 
-                    try:
-                        with self.assertRaises(rts):
-                            roots_and_roots_abs = p.roots(ret_abs=True)
-
-                    except AssertionError:
-                        print(poly, rts)
-                        print(roots_and_roots_abs)
-                        raise
+                    with self.assertRaises(rts):
+                        p.roots()
 
                 else:
 
-                    roots_and_roots_abs_and_mult = p.roots(ret_abs=True)
+                    roots_and_roots_abs_and_mult = p.roots()
 
                     try:
                         self.assertEqual(
@@ -303,7 +297,7 @@ class Test_IntPolynomialArray(TestCase):
                 for p in IntPolynomialIter(deg, sum_abs_coef, False):
 
                     try:
-                        rts = p.roots(True)
+                        rts = p.roots()
 
                     except mp.NoConvergence:
                         self.fail()
@@ -321,10 +315,10 @@ class Test_IntPolynomialArray(TestCase):
                                 y = p(r)
 
                             try:
-                                with extradps(-1):
+                                with extradps(-p.extradps(abs(r))):
                                     self.assertTrue(almosteq(
                                         0.,
-                                        fabs(y)
+                                        y
                                     ))
 
                             except:

@@ -1610,6 +1610,9 @@ cdef class IntPolynomial(IntPolynomialArray):
 
     def roots(self):
 
+        if self._deg <= 0:
+            raise ValueError(f"polynomial degree must be positive, not {self._deg}")
+
         roots_and_mults = PolynomialRing(ComplexField(mpmath.mp.prec), "z")(
             list(np.asarray(self._ro_coefs, dtype = int))
         ).roots()

@@ -1,28 +1,16 @@
 from setuptools import setup, Extension, dist
+import sys
+
+major_python_version, minon_python_version = sys.version_info[:2]
+
+if major_python_version < 3:
+    raise Exception("Must be using Python 3.")
+
 
 build_cython = True
-
-try:
-    import numpy as np
-
-except ModuleNotFoundError:
-
-    # bootstrap numpy install
-    dist.Distribution().fetch_build_eggs(['oldest_supported_numpy'])
-    import numpy as np
-
-if build_cython:
-
-    try:
-        from Cython.Build import cythonize
-
-    except ModuleNotFoundError:
-
-        # bootstrap Cython install
-
-        dist.Distribution().fetch_build_eggs(['Cython>=0.25'])
-
-        from Cython.Build import cythonize
+# bootstrap numpy and cython installs
+dist.Distribution().fetch_build_eggs(['numpy>=1.21.6'])
+import numpy as np
 
 ext = ".pyx" if build_cython else ".c"
 
@@ -36,6 +24,9 @@ extensions = [
 
 if build_cython:
 
+    dist.Distribution().fetch_build_eggs(['Cython>=0.23'])
+    from Cython.Build import cythonize
+    ext = ".pyx"
     extensions = cythonize(
         extensions,
         compiler_directives = {"language_level" : "3"},
@@ -65,7 +56,7 @@ setup(
     python_requires = ">=3.5",
     install_requires = [
         'Cython>=0.23',
-        'oldest_supported_numpy',
+        'numpy>=1.21.6',
         'mpmath>=1.1.0',
         'xxhash>=3.0.0'
     ],
