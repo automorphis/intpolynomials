@@ -1661,10 +1661,7 @@ cdef COEF_t mv_sum(COEF_t[:] array) except? -1:
 
 cdef class IntPolynomialIter:
 
-    def __init__(self, deg, sum_abs_coefs, monic = True, last_poly = None):
-
-        cdef DEG_t j
-        cdef cnp.ndarray[COEF_t, ndim = 1] coefs
+    def __init__(self, deg, sum_abs_coefs, monic = True, reciprocal = False, irreducible = False, last_poly = None):
 
         if not is_int(sum_abs_coefs):
             raise TypeError("`sum_abs_coefs` must be of type `int`.")
@@ -1690,117 +1687,395 @@ cdef class IntPolynomialIter:
         if monic and deg == 0 and sum_abs_coefs > 1:
             raise ValueError(f"No monic polynomials with `deg == 0` and `sum_abs_coefs == {sum_abs_coefs}`.")
 
-        self._sum_abs_coefs = sum_abs_coefs
-        self._deg = deg
-        self._monic = TRUE if monic else FALSE
-
-        if last_poly is None:
-            self._first_call = TRUE
-
-        else:
-
-            self._first_call = FALSE
-            coefs = last_poly.get_ndarray()[ : last_poly.deg() + 1]
-            self._curr = np.abs(coefs)
-            self._nonzero_indices = np.empty(self._deg + 1, dtype = DEG_DTYPE)
-            self._sign_index = 0
-            self._num_nonzeros = 0
-
-            if monic:
-
-                for j in range(self._deg):
-
-                    if coefs[j] < 0:
-                        self._sign_index += 2 ** self._num_nonzeros
-
-                    if coefs[j] != 0:
-
-                        self._nonzero_indices[self._num_nonzeros] = j
-                        self._num_nonzeros += 1
-
-            else:
-
-                for j in range(self._deg + 1):
-
-                    if coefs[j] < 0:
-                        self._sign_index += 2 ** self._num_nonzeros
-
-                    if coefs[j] != 0:
-
-                        self._nonzero_indices[self._num_nonzeros] = j
-                        self._num_nonzeros += 1
-
-            self._max_sign_index = 2 ** self._num_nonzeros - 1
-            self._leftover = self._curr[0]
+        # print('calling 0')
+        self._irreducible = TRUE if irreducible else FALSE
+        self._curr_it = IntPolynomialIter.init(
+            deg, sum_abs_coefs, TRUE if monic else FALSE, TRUE if reciprocal else FALSE, last_poly
+        )
 
     def __iter__(self):
         return self
 
     def __next__(self):
 
-        cdef IntPolynomialArray array
-        cdef IntPolynomial ret
+        # print('calling c')
 
-        if self._monic == TRUE:
-            self.c_monic_next()
+        while True:
 
-        else:
-            self.c_nonmonic_next()
+            e = self._curr_it.c_next()
+            # print('e', e)
+            if e == 0:
+                # print('__next__ ret', self._curr_it._ret)
+                if self._irreducible == FALSE or self._curr_it._ret.is_irreducible():
+                    return self._curr_it._ret
 
-        array = IntPolynomialArray(self._deg)
-        array.c_set_rw_array(self._ret)
-        ret = IntPolynomial(self._deg)
-        ret.c_set_array(array, 0)
+            elif e == -1:
+                # print('raising')
+                raise StopIteration
 
-        return ret
+            else:
+                raise RuntimeError(e)
 
+    @staticmethod
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef ERR_t c_nonmonic_next(self) except -1:
+    cdef IntPolynomialIter init(
+        DEG_t deg, COEF_t sum_abs_coef,  BOOL_t monic, BOOL_t reciprocal, IntPolynomial last_poly
+    ):
 
-        cdef DEG_t j, n
+        cdef IntPolynomialIter it = IntPolynomialIter.__new__(IntPolynomialIter)
+        cdef IntPolynomial recur_poly
+        cdef DEG_t half_deg, j
+        cdef COEF_t c
+        cdef first_call = TRUE if last_poly is None else FALSE
+        it._deg = deg
+        it._sum_abs_coef = sum_abs_coef
+        it._monic = monic
+        it._reciprocal = reciprocal
+        it._exhausted = FALSE
+        it._pos_middle_coef = TRUE
+        it._first_call = TRUE if last_poly is None else FALSE
+        half_deg = (it._deg + 1) // 2 - 1
+        # print(deg, sum_abs_coef, monic, reciprocal, last_poly)
 
-        if self._first_call == TRUE:
+        if it._reciprocal == TRUE:
 
-            self._curr = np.zeros(self._deg + 1, dtype = COEF_DTYPE)
-            self._nonzero_indices = np.empty(self._deg + 1, dtype = DEG_DTYPE)
+            if ( # a few degenerate edge cases
+                (it._deg != 0 and it._sum_abs_coef == 1) or
+                (it._deg == 1 and it._monic == TRUE and it._sum_abs_coef > 2) or
+                (it._deg == 0 and it._monic == TRUE and it._first_call == FALSE)
+            ):
 
-            if self._deg == 0:
+                it._exhausted = TRUE
+                return it
 
-                self._curr[0] = self._sum_abs_coefs
-                self._num_nonzeros = 1
-                self._nonzero_indices[0] = 0
+            if it._first_call == FALSE:
+                # set up polynomial of with degree half_deg that we start from
+                recur_poly = IntPolynomial(half_deg)
+                recur_poly.zero_poly()
+                recur_poly._rw_coefs[:] = last_poly._ro_coefs[it._deg - half_deg : ]
+                recur_poly._deg = half_deg
+
+            if it._deg % 2 == 0:
+                # even degree polynomials have a 'middle' coefficient
+                if half_deg == -1:
+                    # edge case
+                    # print('calling 1')
+                    it._curr_it = IntPolynomialIter.init(-1, 0, FALSE, FALSE, None)
+
+                    if it._first_call == FALSE:
+                        it._curr_it._exhausted = TRUE
+
+                elif it._first_call == TRUE:
+                    # start iterator from beginning
+                    # print('calling 2')
+                    it._curr_it = IntPolynomialIter.init(half_deg, 1, it._monic, FALSE, None)
+
+                else:
+                    # start iterator from recur_poly
+                    # print('calling 3')
+                    it._curr_it = IntPolynomialIter.init(
+                        half_deg, recur_poly.sum_abs_coef(), it._monic, FALSE, recur_poly
+                    )
+
+                if it._first_call == FALSE and (it._monic == FALSE or it._deg > 0):
+                    # set up sign of middle coefficient and initialize previous return value
+                    it._pos_middle_coef = TRUE if last_poly._ro_coefs[it._deg // 2] <= 0 else FALSE
+                    it._ret = IntPolynomial(it._deg)
+                    it._ret.zero_poly()
+                    it._ret._rw_coefs[:] = last_poly._ro_coefs
+                    # print('it._pos_middle_coef', it._pos_middle_coef)
+                        # must advance it._curr_it once if last_poly had a positive middle coefficient
+                    # it._curr_it.c_next()
 
             else:
 
-                self._curr[0] = self._sum_abs_coefs - 1
-                self._curr[self._deg] = 1
+                if it._sum_abs_coef % 2 == 1:
+                    it._exhausted = TRUE
 
-                if self._sum_abs_coefs > 1:
-
-                    self._nonzero_indices[0] = 0
-                    self._nonzero_indices[1] = self._deg
-                    self._num_nonzeros = 2
+                elif it._first_call == TRUE:
+                    # print('calling 4')
+                    it._curr_it = IntPolynomialIter.init(
+                        half_deg, it._sum_abs_coef // 2, it._monic, FALSE, None
+                    )
 
                 else:
+                    # print('calling 5')
+                    it._curr_it = IntPolynomialIter.init(
+                        half_deg, it._sum_abs_coef // 2, it._monic, FALSE, recur_poly
+                    )
 
-                    self._nonzero_indices[0] = self._deg
-                    self._num_nonzeros = 1
 
+        elif it._monic == TRUE:
 
-            self._ret = np.empty((1, self._deg + 1), dtype = COEF_DTYPE)
-            self._ret[0, :] = self._curr
-            self._first_call = FALSE
-            self._leftover = self._sum_abs_coefs - 1
-            self._sign_index = 0
-            self._max_sign_index = (1 << self._num_nonzeros) - 1
+            if it._first_call == TRUE:
+
+                if it._sum_abs_coef == 1:
+                    # print('calling 6')
+                    it._curr_it = IntPolynomialIter.init(-1, 0, FALSE, FALSE, None)
+
+                else:
+                    # print('calling 7')
+                    it._curr_it = IntPolynomialIter.init(0, it._sum_abs_coef - 1, FALSE, FALSE, None)
+
+            else:
+
+                for j in range(it._deg - 1, -1, -1):
+
+                    if last_poly._ro_coefs[j] != 0:
+                        break # j loop
+
+                else:
+                    it._exhausted = TRUE
+
+                recur_poly = IntPolynomial(j)
+                recur_poly.zero_poly()
+                recur_poly._rw_coefs[:] = last_poly._ro_coefs[ : j + 1]
+                recur_poly._deg = j
+                # print('calling 8')
+                it._curr_it = IntPolynomialIter.init(recur_poly._deg, it._sum_abs_coef - 1, FALSE, FALSE, recur_poly)
 
         else:
 
+            it._curr_it = it
+
+            if it._deg != -1:
+
+                if it._first_call == TRUE:
+
+                    it._curr = np.zeros(it._deg + 1, dtype = COEF_DTYPE)
+                    it._nonzero_indices = np.empty(it._deg + 1, dtype = DEG_DTYPE)
+
+                    if it._deg == 0:
+
+                        it._curr[0] = it._sum_abs_coef
+                        it._num_nonzeros = 1
+                        it._nonzero_indices[0] = 0
+
+                    else:
+
+                        it._curr[0] = it._sum_abs_coef - 1
+                        it._curr[it._deg] = 1
+
+                        if it._sum_abs_coef > 1:
+
+                            it._nonzero_indices[0] = 0
+                            it._nonzero_indices[1] = it._deg
+                            it._num_nonzeros = 2
+
+                        else:
+
+                            it._nonzero_indices[0] = it._deg
+                            it._num_nonzeros = 1
+
+                    it._leftover = it._sum_abs_coef - 1
+                    it._sign_index = 0
+                    it._max_sign_index = (1 << it._num_nonzeros) - 1
+
+                else:
+
+                    it._curr = np.abs(last_poly._ro_coefs)
+                    it._nonzero_indices = np.empty(it._deg + 1, dtype = DEG_DTYPE)
+
+                    for j in range(it._deg + 1):
+
+                        c = last_poly._ro_coefs[j]
+
+                        if c < 0:
+                            it._sign_index += 1 << it._num_nonzeros
+
+                        if c != 0:
+
+                            it._nonzero_indices[it._num_nonzeros] = j
+                            it._num_nonzeros += 1
+
+                    it._max_sign_index = (1 << it._num_nonzeros) - 1
+                    it._leftover = it._curr[0]
+                    # print('it._curr', np.asarray(it._curr))
+                    # print('it._nonzero_indices', np.asarray(it._nonzero_indices))
+                    # print('it._num_nonzeros', it._num_nonzeros)
+                    # print('it._sign_index', it._sign_index)
+                    # print('it._max_sign_index', it._max_sign_index)
+
+        return it
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef ERR_t c_next(self) except *:
+
+        cdef ERR_t e
+        cdef IntPolynomial last_ret_copy
+        cdef COEF_t middle_coef
+
+        if self._exhausted == TRUE:
+            # print('hi1')
+            return -1
+
+        elif self._pos_middle_coef == FALSE:
+
+            # print('hi2')
+            last_ret_copy = IntPolynomial(self._deg)
+            last_ret_copy.zero_poly()
+            last_ret_copy._rw_coefs[:] = self._ret._ro_coefs
+            self._ret = IntPolynomial(self._deg)
+            self._ret.zero_poly()
+            self._ret._deg = self._deg
+            self._ret._rw_coefs[:] = last_ret_copy._ro_coefs
+            self._ret._rw_coefs[self._deg // 2] = -self._ret._ro_coefs[self._deg // 2]
+            self._pos_middle_coef = TRUE
+            return 0
+
+        elif self._curr_it is self:
+            # print('calling a', self._deg, self._sum_abs_coef)
+            e = self.c_next_helper()
+            # print('a e', e, self._deg, self._sum_abs_coef)
+
+            if e == -1:
+                self._exhausted = TRUE
+
+            return e
+
+        else:
+
+            # print('calling b', self._deg, self._sum_abs_coef)
+            e = self._curr_it.c_next()
+            # print('b e', e, self._deg, self._sum_abs_coef)
+
+            if e == 0:
+                # dress self._curr_it._ret
+                self._ret = IntPolynomial(self._deg)
+                self._ret.zero_poly()
+                self._ret._deg = self._deg
+
+                if self._reciprocal == TRUE:
+
+                    if self._curr_it._deg >= 0:
+
+                        self._ret._rw_coefs[ : self._curr_it._deg + 1] = self._curr_it._ret._ro_coefs[::-1]
+                        self._ret._rw_coefs[self._deg - self._curr_it._deg:] = self._curr_it._ret._ro_coefs[:]
+
+                    if self._deg % 2 == 0:
+
+                        middle_coef = self._sum_abs_coef - 2 * self._curr_it._sum_abs_coef
+                        # print('self._sum_abs_coef', self._sum_abs_coef)
+                        # print('self._curr_it._sum_abs_coef',self._curr_it._sum_abs_coef)
+                        # print('self._pos_middle_coef', self._pos_middle_coef)
+                        self._ret._rw_coefs[self._deg // 2] = middle_coef
+                        # print('self._ret._rw_coefs[self._deg // 2]', self._ret._rw_coefs[self._deg // 2])
+                        if (self._monic == FALSE or self._deg > 0) and middle_coef > 0:
+                            self._pos_middle_coef = FALSE
+
+                    # print('self._ret', self._ret)
+
+                elif self._monic == TRUE:
+
+                    self._ret._rw_coefs[self._deg] = 1
+                    # print('self._deg', self._deg)
+                    # print('self._ret', self._ret)
+                    # print('self._curr_it._deg', self._curr_it._deg)
+                    # print('self._curr_it._ret', self._curr_it._ret)
+                    # print('np.asarray(self._curr_it._ret._ro_coefs)', np.asarray(self._curr_it._ret._ro_coefs))
+
+                    if self._curr_it._deg >= 0:
+
+                        try:
+                            self._ret._rw_coefs[ : self._curr_it._deg + 1] = self._curr_it._ret._ro_coefs
+
+                        except ValueError:
+                            # print(self._deg)
+                            # print(self._sum_abs_coef)
+                            # print(self._curr_it._deg)
+                            # print(self._curr_it._sum_abs_coef)
+                            raise
+
+                    # print('self._ret', self._ret)
+
+                else:
+                    return 1
+
+                return 0
+
+            else:
+                # increment boundary conditions
+                if self._reciprocal == TRUE:
+
+                    if self._deg % 2 == 0:
+
+                        # print('self._curr_it._deg', self._curr_it._deg)
+                        # print('self._curr_it._sum_abs_coef', self._curr_it._sum_abs_coef)
+                        # print('self._curr_it._monic',  self._curr_it._monic)
+                        # print('self._curr_it._reciprocal', self._curr_it._reciprocal)
+                        # print('self._deg', self._deg)
+                        # print('self._sum_abs_coef', self._sum_abs_coef)
+                        # print('self._monic', self._monic)
+                        # print('self._reciprocal', self._reciprocal)
+
+                        if (
+                            self._curr_it._deg == -1 or
+                            (self._monic and self._curr_it._deg == 0) or
+                            (2 * (1 + self._curr_it._sum_abs_coef) > self._sum_abs_coef)
+                        ):
+                            return -1
+
+                        else:
+
+                            # print('calling 9')
+                            self._curr_it = IntPolynomialIter.init(
+                                self._curr_it._deg, self._curr_it._sum_abs_coef + 1, self._monic, FALSE, None
+                            )
+                            # print('calling d')
+                            e = self.c_next()
+                            # print('d e', e, self._deg, self._sum_abs_coef)
+
+                    else:
+
+                        self._exhausted = TRUE
+                        return -1
+
+                elif self._monic == TRUE:
+
+                    if self._curr_it._deg >= self._deg - 1 or self._curr_it._deg == -1:
+                        # deg maximal
+                        self._exhausted = TRUE
+                        return -1
+
+                    else:
+                        # deg can be incremented
+                        # print('calling 10')
+                        self._curr_it = IntPolynomialIter.init(
+                            self._curr_it._deg + 1, self._sum_abs_coef - 1, FALSE, FALSE, None
+                        )
+                        # print('calling d')
+                        return self.c_next()
+
+                else:
+                    return 1
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef ERR_t c_next_helper(self) except *:
+
+        cdef DEG_t j, n
+        self._ret = IntPolynomial(self._deg)
+        self._ret.zero_poly()
+        self._ret._deg = self._deg
+
+        if self._first_call == TRUE:
+
+            if self._deg != -1:
+                self._ret._rw_coefs[:] = self._curr
+
+            self._first_call = FALSE
+            return 0
+
+        elif self._deg != -1:
+
             if self._sign_index >= self._max_sign_index:
 
+                # print('I shouldn\'t be here!')
+
                 if self._deg == 0:
-                    raise StopIteration
+                    return -1
 
                 self._leftover -= 1
                 self._curr[1] += 1
@@ -1808,7 +2083,7 @@ cdef class IntPolynomialIter:
                 for j in range(1, self._deg + 1):
 
                     if self._leftover >= 0:
-                        break
+                        break # j loop
 
                     elif j < self._deg:
 
@@ -1817,7 +2092,7 @@ cdef class IntPolynomialIter:
                         self._curr[j + 1] += 1
 
                     else:
-                        raise StopIteration
+                        return -1
 
                 self._curr[0] = self._leftover
                 self._num_nonzeros = 0
@@ -1833,105 +2108,20 @@ cdef class IntPolynomialIter:
                 self._sign_index = 0
 
             else:
+                # print('I should be here!')
                 self._sign_index += 1
 
-            self._ret = np.empty((1, self._deg + 1), dtype=COEF_DTYPE)
-            self._ret[0, :] = self._curr
+            self._ret._rw_coefs[:] = self._curr
 
             for j in range(self._num_nonzeros):
 
                 if (self._sign_index >> j) & 1 == 1:
 
                     n = self._nonzero_indices[j]
-                    self._ret[0, n] = - self._curr[n]
+                    self._ret._rw_coefs[n] = - self._curr[n]
 
-        return 0
-
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    cdef ERR_t c_monic_next(self) except -1:
-
-        cdef DEG_t j, n
-
-        if self._first_call == TRUE:
-
-            self._curr = np.zeros(self._deg + 1, dtype = COEF_DTYPE)
-            self._nonzero_indices = np.empty(self._deg, dtype = DEG_DTYPE)
-            self._ret = np.empty((1, self._deg + 1), dtype = COEF_DTYPE)
-            self._first_call = FALSE
-            self._sign_index = 0
-
-            if self._deg == 0:
-
-                self._ret[0, 0] = 1
-                self._num_nonzeros = 0
-
-            else:
-
-                self._curr[0] = self._sum_abs_coefs - 1
-                self._curr[self._deg] = 1
-                self._ret[0, :] = self._curr
-                self._leftover = self._sum_abs_coefs - 1
-
-                if self._sum_abs_coefs > 1:
-
-                    self._nonzero_indices[0] = 0
-                    self._num_nonzeros = 1
-
-                else:
-                    self._num_nonzeros = 0
-
-            self._max_sign_index = (1 << self._num_nonzeros) - 1
-
+            return 0
 
         else:
+            return -1
 
-            if self._sign_index >= self._max_sign_index:
-
-                if self._deg == 0 or self._deg == 1:
-                    raise StopIteration
-
-                self._leftover -= 1
-                self._curr[1] += 1
-
-                for j in range(1, self._deg):
-
-                    if self._leftover >= 0:
-                        break
-
-                    elif j < self._deg - 1:
-
-                        self._leftover += self._curr[j] - 1
-                        self._curr[j] = 0
-                        self._curr[j + 1] += 1
-
-                    else:
-                        raise StopIteration
-
-                self._curr[0] = self._leftover
-                self._num_nonzeros = 0
-
-                for j in range(self._deg):
-
-                    if self._curr[j] != 0:
-
-                        self._nonzero_indices[self._num_nonzeros] = j
-                        self._num_nonzeros += 1
-
-                self._max_sign_index = (1 << self._num_nonzeros) - 1
-                self._sign_index = 0
-
-            else:
-                self._sign_index += 1
-
-            self._ret = np.empty((1, self._deg + 1), dtype=COEF_DTYPE)
-            self._ret[0, :] = self._curr
-
-            for j in range(self._num_nonzeros):
-
-                if (self._sign_index >> j) & 1 == 1:
-
-                    n = self._nonzero_indices[j]
-                    self._ret[0, n] = - self._curr[n]
-
-        return 0

@@ -9,7 +9,6 @@ if major_python_version < 3:
 
 build_cython = True
 # bootstrap numpy and cython installs
-dist.Distribution().fetch_build_eggs(['numpy>=1.21.6'])
 import numpy as np
 
 ext = ".pyx" if build_cython else ".c"
@@ -24,7 +23,6 @@ extensions = [
 
 if build_cython:
 
-    dist.Distribution().fetch_build_eggs(['Cython>=0.23'])
     from Cython.Build import cythonize
     ext = ".pyx"
     extensions = cythonize(

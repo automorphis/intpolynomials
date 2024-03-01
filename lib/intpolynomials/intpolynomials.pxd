@@ -73,7 +73,6 @@ cdef class IntPolynomialArray:
 
     cpdef ERR_t get_max_deg(self) except? -1
 
-
     cdef ERR_t c_copy(self, IntPolynomialArray copy) except -1
 
     cpdef COEF_t max_abs_coef(self) except -1
@@ -114,7 +113,6 @@ cdef class IntPolynomial(IntPolynomialArray):
 
     cpdef ERR_t get_lcd(self) except -1
 
-
     cdef ERR_t c_copy(self, IntPolynomialArray copy) except -1
 
     cdef ERR_t c_eval(self, MPF_t x, BOOL_t calc_deriv) except -1
@@ -148,17 +146,25 @@ cdef COEF_t mv_sum(COEF_t[:] array) except? -1
 cdef class IntPolynomialIter:
 
     cdef:
-        COEF_t _sum_abs_coefs
+        COEF_t _sum_abs_coef
         DEG_t _deg, _num_nonzeros
         BOOL_t _first_call
         COEF_t[:] _curr
-        COEF_t[:,:] _ret
+        IntPolynomial _ret
         COEF_t _leftover
         INDEX_t _sign_index, _max_sign_index
         DEG_t[:] _nonzero_indices
-        BOOL_t _monic
+        BOOL_t _monic, _reciprocal
+        IntPolynomialIter _curr_it
+        BOOL_t _pos_middle_coef, _exhausted
+        BOOL_t _irreducible
 
 
-    cdef ERR_t c_nonmonic_next(self) except -1
+    @staticmethod
+    cdef IntPolynomialIter init(
+        DEG_t deg, COEF_t sum_abs_coef, BOOL_t monic, BOOL_t reciprocal, IntPolynomial last_poly
+    )
 
-    cdef ERR_t c_monic_next(self) except -1
+    cdef ERR_t c_next(self) except *
+
+    cdef ERR_t c_next_helper(self) except *
