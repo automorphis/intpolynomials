@@ -1631,10 +1631,7 @@ cdef class IntPolynomial(IntPolynomialArray):
         if self._deg <= 0:
             raise ValueError(f"polynomial degree must be positive, not {self._deg}")
 
-        if self._discriminant is None:
-            self._discriminant = PolynomialRing(ZZ, 'z')(list(np.asarray(self._ro_coefs, dtype = int))).discriminant()
-
-        return self._discriminant
+        return PolynomialRing(ZZ, 'z')(list(np.asarray(self._ro_coefs, dtype = int))).discriminant()
 
 
 
