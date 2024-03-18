@@ -584,6 +584,7 @@ cdef class IntPolynomial(IntPolynomialArray):
     def __init__(self, max_deg):
 
         self._hashed = FALSE
+        self._discriminant = None
         super().__init__(max_deg)
 
     ###############################
@@ -1624,6 +1625,18 @@ cdef class IntPolynomial(IntPolynomialArray):
             roots_and_abs_and_mults.append((root, abs(root), mult))
 
         return roots_and_abs_and_mults
+
+    def discriminant(self):
+
+        if self._deg <= 0:
+            raise ValueError(f"polynomial degree must be positive, not {self._deg}")
+
+        if self._discriminant is None:
+            self._discriminant = PolynomialRing(ZZ, 'z')(list(np.asarray(self._ro_coefs, dtype = int))).discriminant()
+
+        return self._discriminant
+
+
 
     ###############################
     #         INVALIDATED         #

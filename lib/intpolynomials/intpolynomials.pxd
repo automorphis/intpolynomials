@@ -100,6 +100,7 @@ cdef class IntPolynomial(IntPolynomialArray):
         bytes _hash
         BOOL_t _hashed
         COEF_t _lcd
+        COEF_t _discriminant
 
     cdef ERR_t c_set_array(self, IntPolynomialArray array, INDEX_t index) except -1
 
