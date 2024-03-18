@@ -584,7 +584,6 @@ cdef class IntPolynomial(IntPolynomialArray):
     def __init__(self, max_deg):
 
         self._hashed = FALSE
-        self._discriminant = None
         super().__init__(max_deg)
 
     ###############################
