@@ -13,9 +13,9 @@ IF UNAME_SYSNAME == "Windows":
 
 ELIF UNAME_SYSNAME == "Linux":
 
-    ctypedef cnp.long_t     DEG_t
-    ctypedef cnp.long_t     INDEX_t
-    ctypedef cnp.long_t     DPS_t
+    ctypedef cnp.longlong_t     DEG_t
+    ctypedef cnp.longlong_t     INDEX_t
+    ctypedef cnp.longlong_t     DPS_t
 
 
 cdef COEF_t gcd(COEF_t a, COEF_t b) except -1
